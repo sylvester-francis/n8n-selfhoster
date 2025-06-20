@@ -43,20 +43,38 @@ install_docker() {
     log "INFO" "Waiting for Docker to initialize..."
     sleep 10
     
-    # Test Docker functionality
+    # Test Docker functionality with retries
     log "INFO" "Testing Docker installation..."
-    if docker info > /dev/null 2>&1; then
-        log "SUCCESS" "Docker is running properly"
-    else
-        log "WARNING" "Docker may not be fully ready yet, attempting to start..."
-        systemctl start docker || true
-        sleep 5
+    local max_attempts=3
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
         if docker info > /dev/null 2>&1; then
-            log "SUCCESS" "Docker is now running"
+            log "SUCCESS" "Docker is running properly"
+            break
         else
-            log "ERROR" "Docker installation verification failed"
-            return 1
+            log "WARNING" "Docker not ready (attempt $attempt/$max_attempts), trying to start service..."
+            
+            # Try different approaches to start Docker
+            if systemctl start docker 2>/dev/null; then
+                log "INFO" "Started Docker via systemctl"
+            elif service docker start 2>/dev/null; then
+                log "INFO" "Started Docker via service command"
+            else
+                log "WARNING" "Could not start Docker service, it may start automatically"
+            fi
+            
+            sleep 10
+            ((attempt++))
         fi
+    done
+    
+    # Final verification
+    if ! docker info > /dev/null 2>&1; then
+        log "ERROR" "Docker installation verification failed after $max_attempts attempts"
+        log "INFO" "Checking Docker status..."
+        systemctl status docker --no-pager || service docker status || true
+        return 1
     fi
     
     # Verify Docker Compose (check for both v1 and v2)
@@ -73,15 +91,32 @@ install_docker() {
 install_docker_fast() {
     if curl -fsSL https://get.docker.com -o /tmp/get-docker.sh 2>/dev/null; then
         log "INFO" "Running Docker convenience script..."
-        if timeout 300 sh /tmp/get-docker.sh > /dev/null 2>&1; then
+        if timeout 300 sh /tmp/get-docker.sh; then
             rm -f /tmp/get-docker.sh
-            systemctl enable docker --now > /dev/null 2>&1
-            return 0
+            
+            # Ensure Docker service is enabled and started
+            log "INFO" "Starting Docker service..."
+            if systemctl enable docker --now; then
+                log "INFO" "Docker service started successfully"
+                return 0
+            else
+                log "WARNING" "Failed to start Docker service via systemctl, checking if it's running..."
+                # Sometimes Docker starts automatically, check if it's running
+                if docker info > /dev/null 2>&1; then
+                    log "INFO" "Docker is running despite systemctl warning"
+                    return 0
+                else
+                    log "ERROR" "Docker service failed to start"
+                    return 1
+                fi
+            fi
         else
             rm -f /tmp/get-docker.sh
+            log "ERROR" "Docker convenience script failed"
             return 1
         fi
     else
+        log "ERROR" "Failed to download Docker convenience script"
         return 1
     fi
 }

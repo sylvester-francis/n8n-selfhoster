@@ -62,6 +62,7 @@ OPTIONS:
     --quick                 Quick installation (skip optional features)
     --verbose               Enable verbose logging
     --dry-run               Show what would be done without executing
+    --force-interactive     Force interactive mode even without TTY
 
 EXAMPLES:
     # Interactive installation
@@ -96,6 +97,7 @@ parse_arguments() {
     export QUICK_MODE=false
     export VERBOSE=false
     export DRY_RUN=false
+    export FORCE_INTERACTIVE=false
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -147,6 +149,10 @@ parse_arguments() {
                 ;;
             --dry-run)
                 export DRY_RUN=true
+                shift
+                ;;
+            --force-interactive)
+                export FORCE_INTERACTIVE=true
                 shift
                 ;;
             *)
