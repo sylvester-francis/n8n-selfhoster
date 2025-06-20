@@ -1,0 +1,69 @@
+name: Quick Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-test:
+    name: Lint & Quick Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: ShellCheck
+      uses: ludeeus/action-shellcheck@master
+      with:
+        scandir: './installer'
+        
+    - name: Syntax validation
+      run: |
+        bash -n installer/install.sh
+        bash -n test-installer.sh
+        for script in installer/lib/*.sh; do
+          bash -n "$script"
+        done
+        
+    - name: Function validation
+      run: |
+        # Source all libraries and check critical functions exist
+        cd installer
+        for lib in lib/*.sh; do
+          source "$lib"
+        done
+        
+        # Test critical library functions are defined
+        declare -f install_docker > /dev/null  
+        declare -f install_nginx > /dev/null
+        declare -f setup_n8n > /dev/null
+        declare -f check_requirements > /dev/null
+        
+        # Test main function exists in install.sh
+        grep -q "main()" install.sh
+        
+        echo "✅ All critical functions validated"
+        
+    - name: Performance optimizations check
+      run: |
+        cd installer
+        
+        # Source required libraries for performance functions
+        source lib/performance.sh
+        source lib/docker.sh
+        
+        # Check performance functions exist in their respective modules
+        declare -f install_docker_fast > /dev/null || echo "❌ install_docker_fast missing"
+        declare -f optimize_system_performance > /dev/null || echo "❌ optimize_system_performance missing"
+        declare -f install_packages_parallel > /dev/null || echo "❌ install_packages_parallel missing"
+        
+        # Verify all functions are available
+        if declare -f install_docker_fast > /dev/null && \
+           declare -f optimize_system_performance > /dev/null && \
+           declare -f install_packages_parallel > /dev/null; then
+          echo "✅ Performance optimizations validated"
+        else
+          echo "❌ Some performance functions are missing"
+          exit 1
+        fi

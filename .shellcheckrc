@@ -1,0 +1,17 @@
+# ShellCheck configuration for N8N installer project
+
+# Disable specific style checks that are acceptable for this project
+disable=SC2034  # Allow unused variables (for reserved variables)
+disable=SC2086  # Allow word splitting in some contexts (when intentional)
+disable=SC1091  # Allow sourcing files that may not exist during analysis
+disable=SC2250  # Allow variables without braces when not required
+disable=SC2292  # Allow [ ] instead of [[ ]] for simple tests
+disable=SC2248  # Allow unquoted variables in safe contexts
+disable=SC2310  # Allow functions in || conditions (intentional error handling)
+disable=SC2154  # Allow variables defined in sourced files
+
+# External sources (libraries that ShellCheck might not find)
+external-sources=true
+
+# Shell dialect
+shell=bash

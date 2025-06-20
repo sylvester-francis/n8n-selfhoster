@@ -1,0 +1,402 @@
+name: Test N8N Installer
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'installer/**'
+      - 'test-installer.sh'
+      - '.github/workflows/test-installer.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'installer/**'
+      - 'test-installer.sh'
+      - '.github/workflows/test-installer.yml'
+  workflow_dispatch:
+    inputs:
+      test_level:
+        description: 'Test level (quick/full)'
+        required: false
+        default: 'quick'
+        type: choice
+        options:
+        - quick
+        - full
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  shellcheck:
+    name: ShellCheck Validation
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run ShellCheck
+      uses: ludeeus/action-shellcheck@master
+      with:
+        scandir: './installer'
+        format: gcc
+        severity: error
+        check_together: 'yes'
+        
+    - name: Check test script
+      run: shellcheck test-installer.sh
+
+  syntax-check:
+    name: Bash Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check installer syntax
+      run: |
+        bash -n installer/install.sh
+        for script in installer/lib/*.sh; do
+          echo "Checking syntax: $script"
+          bash -n "$script"
+        done
+        bash -n test-installer.sh
+
+  quick-validation:
+    name: Quick Validation Tests
+    runs-on: ubuntu-latest
+    needs: [shellcheck, syntax-check]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check script permissions
+      run: |
+        chmod +x installer/install.sh
+        chmod +x test-installer.sh
+        
+    - name: Validate installer structure
+      run: |
+        echo "Checking installer structure..."
+        test -f installer/install.sh
+        test -d installer/lib
+        test -f installer/lib/common.sh
+        test -f installer/lib/docker.sh
+        test -f installer/lib/nginx.sh
+        test -f installer/lib/performance.sh
+        echo "✅ All required files present"
+        
+    - name: Check function definitions
+      run: |
+        echo "Validating critical functions exist..."
+        grep -q "main()" installer/install.sh
+        grep -q "install_docker()" installer/lib/docker.sh
+        grep -q "install_nginx()" installer/lib/nginx.sh
+        grep -q "setup_n8n()" installer/lib/n8n.sh
+        echo "✅ All critical functions found"
+
+  docker-test:
+    name: Docker Container Test
+    runs-on: ubuntu-latest
+    needs: [shellcheck, syntax-check]
+    strategy:
+      matrix:
+        ubuntu-version: ['20.04', '22.04']
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Test installer in Ubuntu ${{ matrix.ubuntu-version }} container
+      run: |
+        echo "🐳 Testing installer in Ubuntu ${{ matrix.ubuntu-version }} container..."
+        
+        # Create a test script that runs in the container
+        cat > container-test.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "📦 Setting up test environment..."
+        apt-get update > /dev/null 2>&1
+        apt-get install -y curl git sudo lsb-release > /dev/null 2>&1
+        
+        echo "🔍 Running installer dry-run checks..."
+        cd /workspace
+        
+        # Source the libraries to check for syntax errors
+        for lib in installer/lib/*.sh; do
+          echo "Loading $lib..."
+          source "$lib"
+        done
+        
+        echo "✅ All libraries loaded successfully"
+        
+        # Test critical functions exist
+        echo "🧪 Testing function availability..."
+        declare -f check_requirements > /dev/null || exit 1
+        declare -f install_docker > /dev/null || exit 1
+        declare -f install_nginx > /dev/null || exit 1
+        declare -f setup_n8n > /dev/null || exit 1
+        
+        echo "✅ All critical functions available"
+        
+        # Test requirements check (without actually installing)
+        echo "🔍 Testing requirements check..."
+        if check_requirements; then
+          echo "✅ Requirements check passed"
+        else
+          echo "⚠️ Requirements check failed (expected in container)"
+        fi
+        
+        echo "🎉 Container test completed successfully"
+        EOF
+        
+        chmod +x container-test.sh
+        
+        # Run the test in Ubuntu container
+        docker run --rm \
+          -v "$(pwd):/workspace" \
+          -w /workspace \
+          ubuntu:${{ matrix.ubuntu-version }} \
+          bash -c "
+            apt-get update > /dev/null 2>&1 && 
+            apt-get install -y curl git sudo lsb-release > /dev/null 2>&1 && 
+            ./container-test.sh
+          "
+
+  vm-integration-test:
+    name: Full VM Integration Test
+    runs-on: ubuntu-latest
+    needs: [quick-validation, docker-test]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_level == 'full'
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install multipass
+      run: |
+        sudo snap install multipass
+        
+    - name: Wait for multipass to be ready
+      run: |
+        sleep 10
+        sudo multipass version
+        
+    - name: Run full installation test
+      run: |
+        echo "🚀 Running full installation test with multipass..."
+        
+        # Modify test script for CI environment
+        cat > ci-test.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 CI/CD N8N Installer Test..."
+        
+        # Cleanup any existing VM
+        multipass delete n8n-ci-test 2>/dev/null || true
+        multipass purge 2>/dev/null || true
+        
+        # Create fresh VM with more time
+        echo "📦 Creating Ubuntu VM..."
+        multipass launch 22.04 --name n8n-ci-test --memory 4G --disk 20G --cpus 2
+        
+        # Wait longer for VM in CI
+        echo "⏳ Waiting for VM to initialize..."
+        sleep 60
+        
+        # Get VM IP
+        VM_IP=$(multipass info n8n-ci-test | grep IPv4 | awk '{print $2}')
+        echo "🌐 VM IP: $VM_IP"
+        
+        # Setup environment
+        echo "📁 Setting up installation environment..."
+        multipass exec n8n-ci-test -- bash -c "
+            sudo apt update > /dev/null 2>&1 &&
+            sudo apt install -y git curl lsb-release > /dev/null 2>&1
+        "
+        
+        # Copy installer files
+        echo "📝 Copying installer files..."
+        multipass transfer --recursive installer/ n8n-ci-test:installer/
+        
+        # Record start time
+        START_TIME=$(date +%s)
+        
+        # Run installer with timeout
+        echo "⚙️ Running N8N installer with 20-minute timeout..."
+        timeout 1200 multipass exec n8n-ci-test -- bash -c "
+            cd installer && 
+            sudo chmod +x install.sh && 
+            sudo ./install.sh
+        " || {
+          echo "❌ Installation timed out or failed"
+          multipass exec n8n-ci-test -- sudo tail -20 /tmp/n8n-installer.log
+          exit 1
+        }
+        
+        # Calculate time
+        END_TIME=$(date +%s)
+        DURATION=$((END_TIME - START_TIME))
+        MINUTES=$((DURATION / 60))
+        SECONDS=$((DURATION % 60))
+        
+        echo "✅ Installation completed in ${MINUTES}m ${SECONDS}s"
+        
+        # Basic validation
+        echo "🔍 Running post-installation validation..."
+        multipass exec n8n-ci-test -- bash -c "
+            docker ps | grep n8n &&
+            docker ps | grep postgres &&
+            curl -s http://localhost:5678 > /dev/null &&
+            systemctl is-active nginx &&
+            systemctl is-active docker
+        " || {
+          echo "❌ Post-installation validation failed"
+          exit 1
+        }
+        
+        echo "🎉 All tests passed!"
+        
+        # Cleanup
+        multipass delete n8n-ci-test
+        multipass purge
+        EOF
+        
+        chmod +x ci-test.sh
+        sudo ./ci-test.sh
+
+  performance-benchmark:
+    name: Performance Benchmark
+    runs-on: ubuntu-latest
+    needs: [quick-validation]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Benchmark installation performance
+      run: |
+        echo "📊 Performance benchmarking..."
+        
+        # Create performance test
+        cat > performance-test.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "📊 N8N Installer Performance Test"
+        echo "================================="
+        
+        # Function timing test
+        START=$(date +%s%N)
+        for lib in installer/lib/*.sh; do
+          source "$lib" 2>/dev/null || true
+        done
+        END=$(date +%s%N)
+        LOAD_TIME=$(( (END - START) / 1000000 ))
+        
+        echo "Library loading time: ${LOAD_TIME}ms"
+        
+        # Test performance optimizations are available
+        if declare -f install_docker_fast > /dev/null; then
+          echo "✅ Fast Docker installation available"
+        else
+          echo "❌ Fast Docker installation missing"
+          exit 1
+        fi
+        
+        if declare -f optimize_system_performance > /dev/null; then
+          echo "✅ System performance optimizations available"
+        else
+          echo "❌ System performance optimizations missing"
+          exit 1
+        fi
+        
+        if declare -f install_packages_parallel > /dev/null; then
+          echo "✅ Parallel package installation available"
+        else
+          echo "❌ Parallel package installation missing"
+          exit 1
+        fi
+        
+        echo "🎯 Performance benchmark completed"
+        EOF
+        
+        chmod +x performance-test.sh
+        ./performance-test.sh
+
+  security-check:
+    name: Security Validation
+    runs-on: ubuntu-latest
+    needs: [shellcheck]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check for security issues
+      run: |
+        echo "🔒 Security validation..."
+        
+        # Check for actual hardcoded secrets (excluding legitimate config references)
+        if grep -r -E "(password|secret|key)\s*=\s*[\"'][^\"']+[\"']" installer/ --include="*.sh" | \
+           grep -v -E "(PASSWORD=|generate_password|ssl_certificate|GPG key|keyring|/etc/ssl)" | \
+           grep -v -E "(failregex|was not found|password mismatch)"; then
+          echo "❌ Potential hardcoded secrets found"
+          exit 1
+        fi
+        
+        # Check for unsafe practices
+        if grep -r "curl.*|.*bash" installer/ --include="*.sh"; then
+          echo "❌ Unsafe curl|bash pattern found"
+          exit 1
+        fi
+        
+        # Check for proper error handling
+        if ! grep -q "set -euo pipefail" installer/install.sh; then
+          echo "❌ Missing strict error handling"
+          exit 1
+        fi
+        
+        echo "✅ Security checks passed"
+
+  documentation-check:
+    name: Documentation Validation
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check README and documentation
+      run: |
+        echo "📖 Documentation validation..."
+        
+        # Check README exists and has key sections
+        test -f README.md
+        grep -q "Performance Optimization" README.md
+        grep -q "Quick Start" README.md
+        grep -q "Installation" README.md
+        
+        # Check installer has proper header
+        grep -q "N8N Self-Hosted Installer" installer/install.sh
+        
+        echo "✅ Documentation checks passed"
+
+  notification:
+    name: Test Results Summary
+    runs-on: ubuntu-latest
+    needs: [shellcheck, syntax-check, quick-validation, docker-test, performance-benchmark, security-check, documentation-check]
+    if: always()
+    steps:
+    - name: Summary
+      run: |
+        echo "🎉 CI/CD Pipeline Results Summary"
+        echo "================================="
+        echo "ShellCheck: ${{ needs.shellcheck.result }}"
+        echo "Syntax Check: ${{ needs.syntax-check.result }}"
+        echo "Quick Validation: ${{ needs.quick-validation.result }}"
+        echo "Docker Test: ${{ needs.docker-test.result }}"
+        echo "Performance Benchmark: ${{ needs.performance-benchmark.result }}"
+        echo "Security Check: ${{ needs.security-check.result }}"
+        echo "Documentation Check: ${{ needs.documentation-check.result }}"
+        
+        if [[ "${{ needs.shellcheck.result }}" == "success" && 
+              "${{ needs.syntax-check.result }}" == "success" && 
+              "${{ needs.quick-validation.result }}" == "success" && 
+              "${{ needs.docker-test.result }}" == "success" ]]; then
+          echo "✅ All critical tests passed!"
+        else
+          echo "❌ Some tests failed"
+          exit 1
+        fi

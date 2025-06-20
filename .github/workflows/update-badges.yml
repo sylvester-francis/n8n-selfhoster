@@ -1,0 +1,18 @@
+name: Update Badges
+
+on:
+  workflow_run:
+    workflows: ["Test N8N Installer", "Quick Tests"]
+    types: [completed]
+  push:
+    branches: [main]
+
+jobs:
+  update-badges:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Update test status badge
+      run: |
+        # This will automatically update the badge based on workflow status
+        echo "Badge will be updated automatically by GitHub"
