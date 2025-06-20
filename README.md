@@ -2,7 +2,7 @@
 
 **High-performance, one-click installation script for a production-ready N8N instance on Ubuntu with HTTPS, PostgreSQL, and comprehensive security.**
 
-> **NEW in v1.2.0**: Enhanced CLI interface with command-line arguments, improved prompts, visual progress bars, and better error recovery!
+> **NEW in v1.2.1**: Major reliability improvements with enhanced non-interactive mode, robust password generation, and comprehensive testing suite!
 
 [![Tests](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/quick-test.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/quick-test.yml)
 [![Integration Tests](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/test-installer.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/test-installer.yml)
@@ -88,7 +88,10 @@ sudo ./installer/install.sh --dry-run
 
 ```bash
 # Test installation in a virtual machine (requires multipass)
-./test-installer.sh
+./tests/test-installer.sh
+
+# Or run comprehensive tests
+./tests/test-comprehensive.sh
 ```
 
 ## 📋 What Gets Installed
@@ -242,7 +245,10 @@ The installer includes comprehensive testing and validation:
 
 ```bash
 # Run the test suite
-./test-installer.sh
+./tests/test-installer.sh
+
+# Run comprehensive tests (multiple environments)
+./tests/test-comprehensive.sh
 
 # Manual validation
 sudo ./installer/install.sh  # Full installation
@@ -286,7 +292,31 @@ For detailed troubleshooting, see our [Troubleshooting Guide](docs/troubleshooti
 
 ## 📋 Changelog & Release Notes
 
-### v1.2.0 (Latest) - Enhanced CLI Interface Release
+### v1.2.1 (Latest) - Reliability & Quality Assurance Release
+
+**🛠️ Major Reliability Improvements:**
+
+- 🔐 **Enhanced password generation** - Multiple fallback methods (OpenSSL, /dev/urandom, Python, date-based)
+- 🤖 **Improved non-interactive mode** - Better automation support and bug report generation
+- ✅ **ShellCheck compliance** - All scripts pass static analysis with zero warnings
+- 🧪 **Reorganized test suite** - Moved all test scripts to dedicated `tests/` directory
+- 🐛 **Enhanced error handling** - Automatic bug report creation in non-interactive scenarios
+
+**🚀 Technical Enhancements:**
+
+- 🔧 **Robust dependency handling** - No longer fails if OpenSSL isn't available early in installation
+- 📋 **Better configuration management** - Properly respects `--yes` flag throughout entire flow
+- 🎯 **Improved variable declarations** - Fixed ShellCheck warnings for better code quality
+- 📁 **Better project organization** - Test scripts organized in logical structure
+
+**🧹 Code Quality:**
+
+- ✅ **Zero ShellCheck warnings** - Complete static analysis compliance
+- 📦 **Modular test organization** - Tests separated by purpose and complexity
+- 🔍 **Enhanced validation** - More thorough pre-installation checks
+- 📖 **Updated documentation** - Reflects all latest improvements and testing structure
+
+### v1.2.0 - Enhanced CLI Interface Release
 
 **🎛️ Major CLI/UX Improvements:**
 
@@ -471,12 +501,17 @@ n8n-selfhoster/
 │       ├── common.sh          # Shared utilities and logging
 │       ├── docker.sh          # Docker installation (optimized)
 │       ├── nginx.sh           # Nginx and reverse proxy setup
+│       ├── n8n.sh             # N8N configuration and setup
 │       ├── performance.sh     # Performance optimization functions
 │       ├── security.sh        # Security hardening (UFW, Fail2Ban)
 │       ├── ssl.sh             # SSL certificate generation
 │       ├── system.sh          # System requirements and updates
 │       └── validation.sh      # Post-installation testing
-├── test-installer.sh          # Comprehensive test suite
+├── tests/                      # Comprehensive testing suite
+│   ├── test-installer.sh      # Basic installation test
+│   ├── test-comprehensive.sh  # Multi-environment testing
+│   ├── test-quick.sh          # Quick validation tests
+│   └── test-focused.sh        # Targeted component tests
 └── README.md                  # This documentation
 ```
 
@@ -494,7 +529,10 @@ Test the installer on a fresh Ubuntu instance:
 
 ```bash
 # Using Multipass (recommended)
-./test-installer.sh
+./tests/test-installer.sh
+
+# Comprehensive testing
+./tests/test-comprehensive.sh
 
 # Manual testing
 sudo ./installer/install.sh

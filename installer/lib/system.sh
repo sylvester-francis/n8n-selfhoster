@@ -21,7 +21,8 @@ check_requirements() {
     fi
     
     # Check available memory
-    local memory_gb=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo)
+    local memory_gb
+    memory_gb=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo)
     if [ "$memory_gb" -lt 2 ]; then
         log "ERROR" "Insufficient memory: ${memory_gb}GB detected, minimum 2GB required"
         ((errors++))
@@ -33,7 +34,8 @@ check_requirements() {
     fi
     
     # Check available disk space
-    local disk_gb=$(df / | awk 'NR==2 {print int($4/1024/1024)}')
+    local disk_gb
+    disk_gb=$(df / | awk 'NR==2 {print int($4/1024/1024)}')
     if [ "$disk_gb" -lt 20 ]; then
         log "ERROR" "Insufficient disk space: ${disk_gb}GB available, minimum 20GB required"
         ((errors++))
@@ -45,7 +47,8 @@ check_requirements() {
     fi
     
     # Check CPU cores
-    local cpu_cores=$(nproc)
+    local cpu_cores
+    cpu_cores=$(nproc)
     if [ "$cpu_cores" -lt 1 ]; then
         log "ERROR" "Insufficient CPU cores: ${cpu_cores} detected"
         ((errors++))

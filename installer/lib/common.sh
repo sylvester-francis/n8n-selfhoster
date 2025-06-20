@@ -13,7 +13,7 @@ set -euo pipefail
 # Global Configuration Variables
 ###################################################################################
 
-SCRIPT_VERSION="1.2.0"
+SCRIPT_VERSION="1.2.1"
 LOG_FILE="/tmp/n8n-installer.log"
 export N8N_DIR="/opt/n8n"
 export BACKUP_DIR="/opt/n8n/backups"
@@ -100,7 +100,7 @@ error_exit() {
     print_color "$YELLOW" "\n${INFO} To retry the installation:"
     print_color "$WHITE" "sudo bash $0"
     
-    # Offer to create a bug report
+    # Offer to create a bug report only in interactive mode
     if is_interactive; then
         echo
         read -rp "Would you like to create a bug report? (y/N): " -n 1 -r
@@ -108,6 +108,9 @@ error_exit() {
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             create_bug_report "$line_number"
         fi
+    else
+        # In non-interactive mode, always create bug report
+        create_bug_report "$line_number"
     fi
     
     exit "$exit_code"
@@ -217,7 +220,20 @@ check_port() {
 
 # Generate secure password
 generate_password() {
-    openssl rand -base64 32 | tr -d "=+/" | cut -c1-25
+    # Try multiple methods for generating secure passwords
+    if command_exists openssl; then
+        openssl rand -base64 32 | tr -d "=+/" | cut -c1-25
+    elif [ -c /dev/urandom ]; then
+        # Use /dev/urandom with base64 encoding
+        head -c 32 /dev/urandom | base64 | tr -d "=+/" | cut -c1-25
+    elif command_exists python3; then
+        python3 -c "import secrets, string; print(''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(25)))"
+    elif command_exists python; then
+        python -c "import random, string; print(''.join(random.choice(string.ascii_letters + string.digits) for _ in range(25)))"
+    else
+        # Fallback to date-based password (less secure but functional)
+        echo "n8n$(date +%s)$(echo $RANDOM | md5sum | head -c 10)" | cut -c1-25
+    fi
 }
 
 # Check if we should run in interactive mode
@@ -492,6 +508,8 @@ get_configuration() {
             log "INFO" "Configuration cancelled by user"
             exit 0
         fi
+    else
+        log "INFO" "Non-interactive mode: automatically continuing with configuration"
     fi
     
     log "INFO" "Configuration completed"

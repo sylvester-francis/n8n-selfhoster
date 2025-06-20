@@ -9,7 +9,7 @@ multipass purge 2>/dev/null || true
 
 # Create fresh VM
 echo "📦 Creating Ubuntu VM..."
-multipass launch 22.04 --name n8n-test --memory 4G --disk 20G --cpus 2
+multipass launch 22.04 --name n8n-test --memory 4G --disk 30G --cpus 2
 
 # Wait for VM to be ready
 echo "⏳ Waiting for VM to initialize..."
@@ -48,6 +48,31 @@ multipass exec n8n-test -- bash -c "
     git clone https://github.com/sylvester-francis/n8n-selfhoster.git
 "
 
+# Install Docker using the official convenience script
+echo "🐳 Installing Docker using official convenience script..."
+multipass exec n8n-test -- bash -c "
+    # Remove any existing Docker installations
+    sudo apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+    
+    # Install prerequisites
+    sudo apt-get update
+    sudo apt-get install -y curl
+    
+    # Download and run the Docker convenience script
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    
+    # Add current user to docker group to run without sudo
+    sudo usermod -aG docker $USER
+    
+    # Verify Docker installation
+    sudo docker --version || echo "Docker installation failed"
+    
+    # Test Docker with a simple container
+    sudo docker run --rm hello-world || echo "Docker test failed"
+"
+
+# Copy installer files
 echo "📝 Copying installer files..."
 multipass transfer installer/lib/backup.sh n8n-test:n8n-selfhoster/installer/lib/backup.sh
 multipass transfer installer/lib/common.sh n8n-test:n8n-selfhoster/installer/lib/common.sh  
@@ -67,7 +92,7 @@ echo "⚙️ Running N8N installer..."
 multipass exec n8n-test -- bash -c "
     cd n8n-selfhoster && 
     sudo chmod +x installer/install.sh && 
-    sudo ./installer/install.sh
+    sudo ./installer/install.sh --yes --ip ${VM_IP}
 "
 
 # Calculate installation time
