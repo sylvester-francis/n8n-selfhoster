@@ -43,25 +43,50 @@ install_docker() {
     # Install Docker Compose
     install_docker_compose
     
+    # Ensure Docker service is properly installed and running
+    log "INFO" "Verifying Docker installation..."
+    
     # Create docker group if it doesn't exist
     if ! getent group docker > /dev/null 2>&1; then
         log "INFO" "Creating docker group..."
-        groupadd docker
+        groupadd docker || log "WARNING" "Failed to create docker group"
     fi
     
     # Add user to docker group
-    if [ "$SUDO_USER" ]; then
+    if [ -n "${SUDO_USER:-}" ]; then
         log "INFO" "Adding $SUDO_USER to docker group..."
         usermod -aG docker "$SUDO_USER" || log "WARNING" "Failed to add user to docker group"
+    fi
+    
+    # Ensure Docker daemon is properly configured
+    if [ ! -f /etc/docker/daemon.json ]; then
+        log "INFO" "Creating Docker daemon configuration..."
+        mkdir -p /etc/docker
+        cat > /etc/docker/daemon.json << 'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+  "storage-driver": "overlay2"
+}
+EOF
     fi
     
     # Wait for Docker to fully initialize
     log "INFO" "Waiting for Docker to initialize..."
     sleep 10
     
+    # Restart Docker with new configuration
+    log "INFO" "Restarting Docker with configuration..."
+    systemctl daemon-reload
+    systemctl restart docker || true
+    sleep 5
+    
     # Test Docker functionality with retries
     log "INFO" "Testing Docker installation..."
-    local max_attempts=3
+    local max_attempts=5
     local attempt=1
     
     while [ $attempt -le $max_attempts ]; do
@@ -72,15 +97,18 @@ install_docker() {
             log "WARNING" "Docker not ready (attempt $attempt/$max_attempts), trying to start service..."
             
             # Try different approaches to start Docker
-            if systemctl start docker 2>/dev/null; then
+            if systemctl is-active docker >/dev/null 2>&1; then
+                log "INFO" "Docker service is active, checking daemon..."
+                systemctl restart docker
+            elif systemctl start docker 2>/dev/null; then
                 log "INFO" "Started Docker via systemctl"
             elif service docker start 2>/dev/null; then
                 log "INFO" "Started Docker via service command"
             else
-                log "WARNING" "Could not start Docker service, it may start automatically"
+                log "WARNING" "Could not start Docker service"
             fi
             
-            sleep 10
+            sleep 15
             ((attempt++))
         fi
     done
@@ -88,9 +116,18 @@ install_docker() {
     # Final verification
     if ! docker info > /dev/null 2>&1; then
         log "ERROR" "Docker installation verification failed after $max_attempts attempts"
-        log "INFO" "Checking Docker status..."
+        log "INFO" "Checking Docker status and logs..."
         systemctl status docker --no-pager || service docker status || true
+        journalctl -u docker --no-pager -n 20 || true
         return 1
+    fi
+    
+    # Test basic Docker functionality
+    log "INFO" "Testing Docker functionality..."
+    if docker run --rm hello-world >/dev/null 2>&1; then
+        log "SUCCESS" "Docker functionality test passed"
+    else
+        log "WARNING" "Docker functionality test failed, but Docker is running"
     fi
     
     # Verify Docker Compose (check for both v1 and v2)
@@ -267,48 +304,76 @@ start_docker_services() {
     
     cd "$N8N_DIR" || exit
     
+    # Ensure clean state
+    log "INFO" "Ensuring clean Docker state..."
+    docker-compose down -v >/dev/null 2>&1 || true
+    docker system prune -f >/dev/null 2>&1 || true
+    
     # Start N8N services
     log "INFO" "Starting N8N and PostgreSQL containers..."
     log "INFO" "This may take several minutes to download images..."
     
-    # Use timeout command available in Ubuntu to prevent hanging
-    if timeout 600 docker-compose up -d; then
-        log "SUCCESS" "Docker containers started successfully"
-    else
-        log "ERROR" "Docker containers failed to start within 10 minutes"
-        log "INFO" "Checking container status..."
-        docker-compose ps || true
-        log "INFO" "Checking logs..."
-        docker-compose logs --tail=20 || true
+    # Start PostgreSQL first and wait for it
+    log "INFO" "Starting PostgreSQL container..."
+    if ! timeout 300 docker-compose up -d postgres; then
+        log "ERROR" "Failed to start PostgreSQL container"
         return 1
     fi
     
-    # Wait for services to be ready with health checks
-    log "INFO" "Waiting for services to initialize..."
-    local max_attempts=30
+    # Wait for PostgreSQL to be healthy
+    log "INFO" "Waiting for PostgreSQL to be ready..."
+    local max_attempts=60
     local attempt=1
     
     while [ $attempt -le $max_attempts ]; do
-        log "INFO" "Health check attempt $attempt/$max_attempts..."
-        
-        # Check if containers are running
-        if docker-compose ps | grep -q "Up"; then
-            # Check if PostgreSQL is ready
-            if docker-compose exec -T postgres pg_isready -U n8n >/dev/null 2>&1; then
-                log "SUCCESS" "PostgreSQL is ready"
-                break
-            fi
+        if docker-compose exec -T postgres pg_isready -U n8n >/dev/null 2>&1; then
+            log "SUCCESS" "PostgreSQL is ready"
+            break
         fi
         
-        sleep 10
+        log "INFO" "PostgreSQL health check $attempt/$max_attempts..."
+        sleep 5
         ((attempt++))
     done
     
     if [ $attempt -gt $max_attempts ]; then
-        log "WARNING" "Services may not be fully initialized yet"
-        log "INFO" "Container status:"
-        docker-compose ps || true
+        log "ERROR" "PostgreSQL failed to become ready"
+        docker-compose logs postgres
+        return 1
     fi
+    
+    # Now start N8N
+    log "INFO" "Starting N8N container..."
+    if ! timeout 300 docker-compose up -d n8n; then
+        log "ERROR" "Failed to start N8N container"
+        return 1
+    fi
+    
+    # Wait for N8N to be ready
+    log "INFO" "Waiting for N8N to be ready..."
+    attempt=1
+    max_attempts=30
+    
+    while [ $attempt -le $max_attempts ]; do
+        if curl -s http://localhost:5678 >/dev/null 2>&1; then
+            log "SUCCESS" "N8N is ready"
+            break
+        fi
+        
+        log "INFO" "N8N health check $attempt/$max_attempts..."
+        sleep 5
+        ((attempt++))
+    done
+    
+    if [ $attempt -gt $max_attempts ]; then
+        log "WARNING" "N8N may still be starting up"
+        log "INFO" "Checking N8N logs..."
+        docker-compose logs --tail=10 n8n || true
+    fi
+    
+    # Final status check
+    log "INFO" "Final container status:"
+    docker-compose ps
     
     log "SUCCESS" "Docker services startup completed"
 }

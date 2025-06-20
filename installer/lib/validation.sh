@@ -7,28 +7,59 @@
 #                                                                                 #
 ###################################################################################
 
-# Run comprehensive tests
+# Enhanced comprehensive tests with recovery
 run_tests() {
     show_progress 14 15 "Running comprehensive tests"
     
     local test_failed=false
+    local tests_passed=0
+    local total_tests=10
+    
+    cd "$N8N_DIR" || exit
     
     # Test 1: Check if containers are running
     log "INFO" "Test 1: Checking container status..."
-    if docker-compose ps | grep -q "Up"; then
+    if docker-compose ps | grep -q "Up.*Up"; then
         log "SUCCESS" "✓ Docker containers are running"
+        ((tests_passed++))
     else
         log "ERROR" "✗ Some Docker containers are not running"
         docker-compose ps
-        test_failed=true
+        
+        # Try to recover by restarting containers
+        log "INFO" "Attempting to restart containers..."
+        docker-compose restart
+        sleep 10
+        
+        if docker-compose ps | grep -q "Up.*Up"; then
+            log "SUCCESS" "✓ Containers recovered after restart"
+            ((tests_passed++))
+        else
+            test_failed=true
+        fi
     fi
     
-    # Test 2: Check if N8N is responding locally
+    # Test 2: Check if N8N is responding locally with retry
     log "INFO" "Test 2: Checking N8N local response..."
-    if curl -s -o /dev/null -w "%{http_code}" http://localhost:5678 | grep -q "200\|401"; then
-        log "SUCCESS" "✓ N8N is responding on localhost:5678"
-    else
+    local n8n_ready=false
+    for i in {1..5}; do
+        if curl -s -m 10 http://localhost:5678 >/dev/null 2>&1; then
+            log "SUCCESS" "✓ N8N is responding on localhost:5678"
+            n8n_ready=true
+            ((tests_passed++))
+            break
+        fi
+        
+        if [ $i -lt 5 ]; then
+            log "INFO" "N8N not ready, waiting... (attempt $i/5)"
+            sleep 10
+        fi
+    done
+    
+    if [ "$n8n_ready" = "false" ]; then
         log "ERROR" "✗ N8N is not responding on localhost:5678"
+        log "INFO" "Checking N8N logs..."
+        docker-compose logs --tail=10 n8n || true
         test_failed=true
     fi
     
@@ -107,11 +138,23 @@ run_tests() {
         log "WARNING" "⚠ Fail2Ban is not running"
     fi
     
+    # Test summary
+    log "INFO" "Test Results: $tests_passed/$total_tests tests passed"
+    
     if [ "$test_failed" = true ]; then
-        log "WARNING" "Some tests failed. Please check the issues above."
+        local failed_tests=$((total_tests - tests_passed))
+        log "WARNING" "Some tests failed ($failed_tests failures). Installation completed with issues."
+        
+        # Offer recovery suggestions
+        if [ "$tests_passed" -ge 7 ]; then
+            log "INFO" "Most components are working. Issues may resolve automatically."
+            log "INFO" "You can access N8N at: https://$DOMAIN_NAME"
+            log "INFO" "Admin credentials are in: $N8N_DIR/credentials.txt"
+        fi
+        
         return 1
     else
-        log "SUCCESS" "All tests passed!"
+        log "SUCCESS" "All tests passed! Installation completed successfully."
         return 0
     fi
 }

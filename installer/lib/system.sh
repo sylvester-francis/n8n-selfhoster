@@ -7,14 +7,61 @@
 #                                                                                 #
 ###################################################################################
 
-# Check system requirements
+# Enhanced system requirements check
 check_requirements() {
     show_progress 1 15 "Checking system requirements"
+    
+    local errors=0
+    local warnings=0
     
     # Check if running as root
     if [[ $EUID -ne 0 ]]; then
         log "ERROR" "This script must be run as root (use sudo)"
         exit 1
+    fi
+    
+    # Check available memory
+    local memory_gb=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo)
+    if [ "$memory_gb" -lt 2 ]; then
+        log "ERROR" "Insufficient memory: ${memory_gb}GB detected, minimum 2GB required"
+        ((errors++))
+    elif [ "$memory_gb" -lt 4 ]; then
+        log "WARNING" "Low memory: ${memory_gb}GB detected, 4GB recommended for production"
+        ((warnings++))
+    else
+        log "SUCCESS" "Memory check passed: ${memory_gb}GB available"
+    fi
+    
+    # Check available disk space
+    local disk_gb=$(df / | awk 'NR==2 {print int($4/1024/1024)}')
+    if [ "$disk_gb" -lt 20 ]; then
+        log "ERROR" "Insufficient disk space: ${disk_gb}GB available, minimum 20GB required"
+        ((errors++))
+    elif [ "$disk_gb" -lt 50 ]; then
+        log "WARNING" "Low disk space: ${disk_gb}GB available, 50GB recommended for production"
+        ((warnings++))
+    else
+        log "SUCCESS" "Disk space check passed: ${disk_gb}GB available"
+    fi
+    
+    # Check CPU cores
+    local cpu_cores=$(nproc)
+    if [ "$cpu_cores" -lt 1 ]; then
+        log "ERROR" "Insufficient CPU cores: ${cpu_cores} detected"
+        ((errors++))
+    elif [ "$cpu_cores" -eq 1 ]; then
+        log "WARNING" "Single CPU core detected, 2+ cores recommended for production"
+        ((warnings++))
+    else
+        log "SUCCESS" "CPU check passed: ${cpu_cores} cores available"
+    fi
+    
+    # Check internet connectivity
+    if ! curl -s --connect-timeout 10 https://google.com >/dev/null 2>&1; then
+        log "ERROR" "No internet connectivity detected"
+        ((errors++))
+    else
+        log "SUCCESS" "Internet connectivity verified"
     fi
     
     # Check Ubuntu version with fallback methods
@@ -41,43 +88,36 @@ check_requirements() {
     
     if ! dpkg --compare-versions "$ubuntu_version" "ge" "20.04"; then
         log "ERROR" "Ubuntu 20.04 or later required. Current version: $ubuntu_version"
+        ((errors++))
+    else
+        log "SUCCESS" "Ubuntu version check passed: $ubuntu_version"
+    fi
+    
+    # Summary of checks
+    if [ "$errors" -gt 0 ]; then
+        log "ERROR" "System requirements check failed with $errors critical errors"
+        log "ERROR" "Please resolve the above issues before continuing"
         exit 1
     fi
     
-    # Check system resources
-    local ram_gb
-    ram_gb=$(free -g | awk '/^Mem:/{print $2}')
-    local disk_gb
-    disk_gb=$(df / | awk 'NR==2{print int($4/1024/1024)}')
-    
-    if [ "$ram_gb" -lt 2 ]; then
-        log "WARNING" "Recommended minimum RAM is 2GB. Current: ${ram_gb}GB"
-        if [ -t 0 ] && [ -z "${AUTO_CONFIRM:-}" ]; then
-            read -rp "Continue anyway? (y/N): " -n 1 -r
+    if [ "$warnings" -gt 0 ]; then
+        log "WARNING" "System requirements check completed with $warnings warnings"
+        if is_interactive; then
+            echo
+            read -rp "Continue despite warnings? (y/N): " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                exit 1
+                log "INFO" "Installation cancelled by user"
+                exit 0
             fi
         else
-            log "WARNING" "Non-interactive mode: proceeding with low RAM"
+            log "INFO" "Non-interactive mode: proceeding despite warnings"
         fi
+    else
+        log "SUCCESS" "System requirements check passed"
     fi
     
-    if [ "$disk_gb" -lt 10 ]; then
-        log "WARNING" "Recommended minimum free disk space is 10GB. Current: ${disk_gb}GB"
-        if [ -t 0 ] && [ -z "${AUTO_CONFIRM:-}" ]; then
-            read -rp "Continue anyway? (y/N): " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                exit 1
-            fi
-        else
-            log "WARNING" "Non-interactive mode: proceeding with low disk space"
-        fi
-    fi
-    
-    log "SUCCESS" "System requirements check passed"
-    log "INFO" "Ubuntu $ubuntu_version detected with ${ram_gb}GB RAM and ${disk_gb}GB free disk space"
+    log "INFO" "Ubuntu $ubuntu_version detected with ${memory_gb}GB RAM and ${disk_gb}GB free disk space"
 }
 
 # Update system packages (optimized)

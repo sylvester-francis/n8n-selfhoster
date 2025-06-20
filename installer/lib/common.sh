@@ -101,7 +101,7 @@ error_exit() {
     print_color "$WHITE" "sudo bash $0"
     
     # Offer to create a bug report
-    if ([ -t 0 ] && [ -t 1 ] || [ "${FORCE_INTERACTIVE:-}" = "true" ]) && [ -z "${AUTO_CONFIRM:-}" ]; then
+    if is_interactive; then
         echo
         read -rp "Would you like to create a bug report? (y/N): " -n 1 -r
         echo
@@ -220,6 +220,26 @@ generate_password() {
     openssl rand -base64 32 | tr -d "=+/" | cut -c1-25
 }
 
+# Check if we should run in interactive mode
+is_interactive() {
+    # Force interactive mode if requested
+    if [ "${FORCE_INTERACTIVE:-}" = "true" ]; then
+        return 0
+    fi
+    
+    # Skip interactive if auto-confirm is set
+    if [ "${AUTO_CONFIRM:-}" = "true" ]; then
+        return 1
+    fi
+    
+    # Check for real terminal
+    if [ -t 0 ] && [ -t 1 ]; then
+        return 0
+    fi
+    
+    return 1
+}
+
 # Spinner function for long-running operations with timeout
 spinner() {
     local pid=$1
@@ -277,8 +297,7 @@ show_welcome() {
     echo "Log file: $LOG_FILE"
     echo
     
-    # Check if we're in a non-interactive environment or if auto-confirm is set
-    if ([ -t 0 ] && [ -t 1 ] || [ "${FORCE_INTERACTIVE:-}" = "true" ]) && [ -z "${AUTO_CONFIRM:-}" ]; then
+    if is_interactive; then
         read -rp "Do you want to continue? (y/N): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -392,7 +411,7 @@ get_configuration() {
     # Get server IP if not already set
     if [ -z "${SERVER_IP:-}" ]; then
         detected_ip=$(curl -s ifconfig.me || curl -s ipinfo.io/ip || curl -s icanhazip.com)
-        if ([ -t 0 ] && [ -t 1 ] || [ "${FORCE_INTERACTIVE:-}" = "true" ]) && [ -z "${AUTO_CONFIRM:-}" ]; then
+        if is_interactive; then
             if [ -n "$detected_ip" ]; then
                 SERVER_IP=$(prompt_with_validation "Server IP address" "ip" "$detected_ip" false)
             else
@@ -416,7 +435,7 @@ get_configuration() {
         print_color "$WHITE" "You can use either a domain name or IP address for this installation."
         print_color "$WHITE" "Domain names allow for proper SSL certificates with Let's Encrypt."
         
-        if ([ -t 0 ] && [ -t 1 ] || [ "${FORCE_INTERACTIVE:-}" = "true" ]) && [ -z "${AUTO_CONFIRM:-}" ]; then
+        if is_interactive; then
             DOMAIN_NAME=$(prompt_with_validation "Domain name (or press Enter to use IP $SERVER_IP)" "domain" "" true)
         else
             DOMAIN_NAME=""  # Use IP address in non-interactive mode
@@ -445,7 +464,7 @@ get_configuration() {
         current_tz=$(timedatectl show --property=Timezone --value)
         print_color "$YELLOW" "\n${INFO} Timezone Configuration"
         
-        if ([ -t 0 ] && [ -t 1 ] || [ "${FORCE_INTERACTIVE:-}" = "true" ]) && [ -z "${AUTO_CONFIRM:-}" ]; then
+        if is_interactive; then
             TIMEZONE=$(prompt_with_validation "Timezone" "timezone" "$current_tz" true)
         else
             TIMEZONE="$current_tz"  # Use current timezone in non-interactive mode
@@ -465,7 +484,7 @@ get_configuration() {
     print_color "$WHITE" "  Database Password: [Generated securely]"
     print_color "$WHITE" "  Admin Password: [Generated securely]"
     
-    if ([ -t 0 ] && [ -t 1 ] || [ "${FORCE_INTERACTIVE:-}" = "true" ]) && [ -z "${AUTO_CONFIRM:-}" ]; then
+    if is_interactive; then
         echo
         read -rp "Continue with this configuration? (Y/n): " -n 1 -r
         echo
