@@ -22,7 +22,8 @@ TOTAL_TESTS=0
 log() {
     local level=$1
     local message=$2
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     
     case $level in
         "SUCCESS")
@@ -105,7 +106,8 @@ run_test() {
     
     log "INFO" "Running test: $test_name"
     
-    local start_time=$(date +%s)
+    local start_time
+    start_time=$(date +%s)
     
     if multipass exec "$vm_name" -- bash -c "$test_command"; then
         local exit_code=0
@@ -113,7 +115,8 @@ run_test() {
         local exit_code=$?
     fi
     
-    local end_time=$(date +%s)
+    local end_time
+    end_time=$(date +%s)
     local duration=$((end_time - start_time))
     
     if [ $exit_code -eq $expected_result ]; then

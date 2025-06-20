@@ -5,13 +5,13 @@ on:
     branches: [ main, develop ]
     paths:
       - 'installer/**'
-      - 'test-installer.sh'
+      - 'tests/**'
       - '.github/workflows/test-installer.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'installer/**'
-      - 'test-installer.sh'
+      - 'tests/**'
       - '.github/workflows/test-installer.yml'
   workflow_dispatch:
     inputs:
@@ -42,8 +42,11 @@ jobs:
         severity: error
         check_together: 'yes'
         
-    - name: Check test script
-      run: shellcheck test-installer.sh
+    - name: Check test scripts
+      run: |
+        for script in tests/*.sh; do
+          shellcheck "$script"
+        done
 
   syntax-check:
     name: Bash Syntax Check
@@ -58,7 +61,10 @@ jobs:
           echo "Checking syntax: $script"
           bash -n "$script"
         done
-        bash -n test-installer.sh
+        for script in tests/*.sh; do
+          echo "Checking syntax: $script"
+          bash -n "$script"
+        done
 
   quick-validation:
     name: Quick Validation Tests
@@ -70,7 +76,7 @@ jobs:
     - name: Check script permissions
       run: |
         chmod +x installer/install.sh
-        chmod +x test-installer.sh
+        chmod +x tests/*.sh
         
     - name: Validate installer structure
       run: |

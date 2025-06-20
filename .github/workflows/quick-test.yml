@@ -21,7 +21,9 @@ jobs:
     - name: Syntax validation
       run: |
         bash -n installer/install.sh
-        bash -n test-installer.sh
+        for script in tests/*.sh; do
+          bash -n "$script"
+        done
         for script in installer/lib/*.sh; do
           bash -n "$script"
         done

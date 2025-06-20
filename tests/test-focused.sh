@@ -12,7 +12,8 @@ NC='\033[0m'
 log() {
     local level=$1
     local message=$2
-    local timestamp=$(date '+%H:%M:%S')
+    local timestamp
+    timestamp=$(date '+%H:%M:%S')
     
     case $level in
         "SUCCESS") echo -e "${GREEN}[${timestamp}] ✅ $message${NC}" ;;
