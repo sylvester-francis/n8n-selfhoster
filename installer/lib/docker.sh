@@ -13,6 +13,17 @@ install_docker() {
     
     if command_exists docker; then
         log "INFO" "Docker already installed: $(docker --version)"
+        
+        # Even if Docker is installed, check if it's running
+        if ! docker info > /dev/null 2>&1; then
+            log "WARNING" "Docker is installed but not running, attempting to start..."
+            # Try to start existing Docker installation
+            if systemctl start docker 2>/dev/null || service docker start 2>/dev/null; then
+                log "SUCCESS" "Existing Docker installation started"
+            else
+                log "WARNING" "Could not start existing Docker installation"
+            fi
+        fi
     else
         # Try fast installation method first
         log "INFO" "Attempting fast Docker installation..."
@@ -20,7 +31,12 @@ install_docker() {
             log "SUCCESS" "Docker installed via fast method"
         else
             log "WARNING" "Fast installation failed, using manual method"
-            install_docker_manual
+            if install_docker_manual; then
+                log "SUCCESS" "Docker installed via manual method"
+            else
+                log "ERROR" "Both fast and manual Docker installation methods failed"
+                return 1
+            fi
         fi
     fi
     
@@ -91,28 +107,68 @@ install_docker() {
 install_docker_fast() {
     if curl -fsSL https://get.docker.com -o /tmp/get-docker.sh 2>/dev/null; then
         log "INFO" "Running Docker convenience script..."
-        if timeout 300 sh /tmp/get-docker.sh; then
+        
+        # Run the script and capture both success and any issues
+        if timeout 300 sh /tmp/get-docker.sh 2>&1 | tee /tmp/docker-install.log; then
             rm -f /tmp/get-docker.sh
             
-            # Ensure Docker service is enabled and started
-            log "INFO" "Starting Docker service..."
-            if systemctl enable docker --now; then
-                log "INFO" "Docker service started successfully"
+            # Check if Docker binary is installed
+            if ! command_exists docker; then
+                log "ERROR" "Docker binary not found after convenience script"
+                return 1
+            fi
+            
+            # Check if Docker daemon is running
+            if docker info > /dev/null 2>&1; then
+                log "SUCCESS" "Docker is already running"
                 return 0
-            else
-                log "WARNING" "Failed to start Docker service via systemctl, checking if it's running..."
-                # Sometimes Docker starts automatically, check if it's running
-                if docker info > /dev/null 2>&1; then
-                    log "INFO" "Docker is running despite systemctl warning"
-                    return 0
-                else
-                    log "ERROR" "Docker service failed to start"
-                    return 1
+            fi
+            
+            # Try to start Docker service using multiple methods
+            log "INFO" "Docker not running, attempting to start service..."
+            
+            # Method 1: systemctl (most modern systems)
+            if systemctl list-unit-files | grep -q docker.service; then
+                log "INFO" "Found docker.service, attempting to start with systemctl..."
+                if systemctl enable docker --now 2>/dev/null; then
+                    log "SUCCESS" "Docker service started with systemctl"
+                    sleep 3
+                    if docker info > /dev/null 2>&1; then
+                        return 0
+                    fi
                 fi
             fi
+            
+            # Method 2: service command (older systems)
+            if command_exists service; then
+                log "INFO" "Attempting to start with service command..."
+                if service docker start 2>/dev/null; then
+                    log "SUCCESS" "Docker service started with service command"
+                    sleep 3
+                    if docker info > /dev/null 2>&1; then
+                        return 0
+                    fi
+                fi
+            fi
+            
+            # Method 3: Try to start dockerd directly
+            if command_exists dockerd; then
+                log "INFO" "Attempting to start dockerd directly..."
+                if dockerd > /dev/null 2>&1 & then
+                    sleep 5
+                    if docker info > /dev/null 2>&1; then
+                        log "SUCCESS" "Docker daemon started directly"
+                        return 0
+                    fi
+                fi
+            fi
+            
+            # If we get here, Docker installed but won't start
+            log "ERROR" "Docker installed but failed to start. Check /tmp/docker-install.log"
+            return 1
         else
             rm -f /tmp/get-docker.sh
-            log "ERROR" "Docker convenience script failed"
+            log "ERROR" "Docker convenience script failed. Check /tmp/docker-install.log"
             return 1
         fi
     else
