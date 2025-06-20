@@ -27,12 +27,44 @@ install_docker() {
     # Install Docker Compose
     install_docker_compose
     
-    # Verify installation
-    if command_exists docker && command_exists docker-compose; then
+    # Create docker group if it doesn't exist
+    if ! getent group docker > /dev/null 2>&1; then
+        log "INFO" "Creating docker group..."
+        groupadd docker
+    fi
+    
+    # Add user to docker group
+    if [ "$SUDO_USER" ]; then
+        log "INFO" "Adding $SUDO_USER to docker group..."
+        usermod -aG docker "$SUDO_USER" || log "WARNING" "Failed to add user to docker group"
+    fi
+    
+    # Wait for Docker to fully initialize
+    log "INFO" "Waiting for Docker to initialize..."
+    sleep 10
+    
+    # Test Docker functionality
+    log "INFO" "Testing Docker installation..."
+    if docker info > /dev/null 2>&1; then
+        log "SUCCESS" "Docker is running properly"
+    else
+        log "WARNING" "Docker may not be fully ready yet, attempting to start..."
+        systemctl start docker || true
+        sleep 5
+        if docker info > /dev/null 2>&1; then
+            log "SUCCESS" "Docker is now running"
+        else
+            log "ERROR" "Docker installation verification failed"
+            return 1
+        fi
+    fi
+    
+    # Verify Docker Compose (check for both v1 and v2)
+    if command_exists docker-compose || docker compose version > /dev/null 2>&1; then
         log "SUCCESS" "Docker and Docker Compose installed successfully"
         return 0
     else
-        log "ERROR" "Docker installation verification failed"
+        log "ERROR" "Docker Compose installation verification failed"
         return 1
     fi
 }
@@ -135,23 +167,7 @@ install_docker_compose() {
         log "SUCCESS" "Docker Compose installed: $(docker-compose --version)"
     fi
     
-    # Add current user to docker group if not root
-    if [ "$SUDO_USER" ]; then
-        usermod -aG docker "$SUDO_USER"
-        log "INFO" "Added $SUDO_USER to docker group"
-    fi
-    
-    # Wait a moment for Docker to fully initialize
-    log "INFO" "Waiting for Docker to initialize..."
-    sleep 5
-    
-    # Test Docker functionality
-    log "INFO" "Testing Docker installation..."
-    if docker info > /dev/null 2>&1; then
-        log "SUCCESS" "Docker is running properly"
-    else
-        log "WARNING" "Docker may not be fully ready yet"
-    fi
+    # Note: User addition to docker group is handled in main install_docker function
 }
 
 # Start Docker services
