@@ -39,19 +39,22 @@ run_tests() {
         fi
     fi
     
-    # Test 2: Check if N8N is responding locally with extended retry for Proxmox VMs
+    # Test 2: Check if N8N is responding locally with configurable timeout
     log "INFO" "Test 2: Checking N8N local response..."
     local n8n_ready=false
-    for i in {1..30}; do
-        if curl -s -m 30 http://localhost:5678 >/dev/null 2>&1; then
+    local max_attempts=${VALIDATION_ATTEMPTS:-30}
+    local timeout_per_check=${VALIDATION_TIMEOUT_PER_CHECK:-30}
+    
+    for i in $(seq 1 $max_attempts); do
+        if curl -s -m $timeout_per_check http://localhost:5678 >/dev/null 2>&1; then
             log "SUCCESS" "✓ N8N is responding on localhost:5678"
             n8n_ready=true
             ((tests_passed++))
             break
         fi
         
-        if [ $i -lt 5 ]; then
-            log "INFO" "N8N not ready, waiting... (attempt $i/5)"
+        if [ $i -le $max_attempts ]; then
+            log "INFO" "N8N not ready, waiting... (attempt $i/$max_attempts)"
             sleep 10
         fi
     done
@@ -162,6 +165,9 @@ run_tests() {
 # Show final summary and instructions
 show_summary() {
     show_progress 15 15 "Installation completed"
+    
+    # Show Proxmox-specific information if detected
+    show_proxmox_info
     
     # Only clear screen in truly interactive mode
     if [ -t 0 ] && [ -t 1 ] && [ -t 2 ] && [ -z "${SSH_CONNECTION:-}" ]; then

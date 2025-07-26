@@ -13,7 +13,7 @@ set -euo pipefail
 # Global Configuration Variables
 ###################################################################################
 
-SCRIPT_VERSION="1.2.1"
+SCRIPT_VERSION="1.3.0"
 LOG_FILE="/tmp/n8n-installer.log"
 export N8N_DIR="/opt/n8n"
 export BACKUP_DIR="/opt/n8n/backups"

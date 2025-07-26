@@ -1,6 +1,145 @@
 # Troubleshooting Guide
 
-This guide covers common issues and their solutions for the N8N self-hosted installation.
+This guide covers common issues and their solutions for the N8N self-hosted installation, including Proxmox VM-specific issues.
+
+## Proxmox VM Issues
+
+### Installation Timeout Errors
+
+**Issue**: Nginx shows "504 Gateway Timeout" when accessing N8N  
+**Cause**: N8N takes longer to start in VM environments  
+**Solution**: The installer now automatically applies extended timeouts (300s vs 60s)
+
+```bash
+# Verify timeout settings are applied
+grep "proxy_.*_timeout" /etc/nginx/sites-available/n8n
+
+# Should show:
+# proxy_connect_timeout 300s;
+# proxy_send_timeout 300s;
+# proxy_read_timeout 300s;
+```
+
+### Curl Installation Failures
+
+**Issue**: One-line curl installation fails in Proxmox VMs  
+**Cause**: Network restrictions or curl limitations in VMs  
+**Solution**: Use local installation method
+
+```bash
+# Clone and install locally
+git clone https://github.com/sylvester-francis/n8n-selfhoster.git
+cd n8n-selfhoster
+sudo ./install-proxmox.sh --yes
+```
+
+### Slow N8N Startup
+
+**Issue**: N8N takes 5+ minutes to become available  
+**Cause**: VM overhead and resource constraints  
+**Solution**: This is normal for VMs, extended validation is automatic
+
+```bash
+# Monitor N8N startup progress
+cd /opt/n8n && docker-compose logs -f n8n
+
+# Check direct access (should work first)
+curl -s http://localhost:5678
+
+# Check proxy access (may take longer)
+curl -k -s https://localhost
+```
+
+### VM Resource Issues
+
+**Issue**: Installation fails due to insufficient resources  
+**Cause**: VM allocated insufficient RAM/CPU/disk  
+**Solution**: Increase VM resources
+
+```bash
+# Check current resources
+free -h                    # Memory
+df -h                      # Disk space
+nproc                      # CPU cores
+systemd-detect-virt        # Virtualization type
+
+# Recommended minimums for Proxmox VMs:
+# RAM: 2GB (4GB preferred)
+# CPU: 1 core (2+ preferred)  
+# Disk: 20GB (SSD preferred)
+```
+
+### Self-Signed Certificate Issues
+
+**Issue**: Browser shows certificate warnings when accessing from host  
+**Cause**: Self-signed certificates not trusted by host OS  
+**Solutions**:
+
+#### Option 1: Accept Warning (Simplest)
+1. Click "Advanced" in browser
+2. Click "Proceed to [VM_IP] (unsafe)"
+
+#### Option 2: Trust Certificate (macOS)
+```bash
+# Download certificate from VM
+scp root@VM_IP:/etc/ssl/certs/n8n-selfsigned.crt ./
+
+# Add to macOS keychain
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain n8n-selfsigned.crt
+```
+
+#### Option 3: Use Let's Encrypt (Production)
+```bash
+# If you have a domain pointing to your VM
+sudo certbot --nginx -d yourdomain.com
+```
+
+### VM Network Configuration
+
+**Issue**: Cannot access N8N from outside the VM  
+**Cause**: Network configuration issues  
+**Solutions**:
+
+```bash
+# Check VM IP and network config
+ip addr show
+ip route show
+
+# Check firewall status
+sudo ufw status
+
+# Check if ports are listening
+sudo netstat -tlnp | grep -E ':(80|443|5678)'
+
+# Test connectivity from VM to internet
+curl -s https://google.com
+
+# Verify Docker networking
+docker network ls
+cd /opt/n8n && docker-compose ps
+```
+
+### Performance Issues in VMs
+
+**Issue**: N8N runs slowly in Proxmox VM  
+**Cause**: VM overhead and resource constraints  
+**Solutions**:
+
+```bash
+# Enable hardware virtualization in Proxmox VM settings
+# Use VirtIO drivers for better performance
+# Allocate more CPU cores and RAM
+
+# Check current resource usage
+htop
+docker stats
+
+# Monitor disk I/O
+iostat -x 1
+
+# Check VM-specific optimizations are applied
+grep -r "PROXMOX\|proxmox" /opt/n8n/ || echo "Standard installation"
+```
 
 ## SSH Connection Issues
 

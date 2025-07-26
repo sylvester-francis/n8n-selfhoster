@@ -1,20 +1,40 @@
 # N8N Installation Guide
 
-This guide provides step-by-step instructions for installing N8N on Ubuntu using our automated installer.
+This guide provides step-by-step instructions for installing N8N on Ubuntu using our automated installer, including specialized support for Proxmox VMs.
 
 ## Prerequisites
 
+### General Requirements
 - Ubuntu 20.04+ server with root access
 - 2GB+ RAM (4GB recommended)
 - 20GB+ free disk space
 - Internet connection
 
+### Proxmox VM Requirements
+- Ubuntu 20.04+ VM
+- 2GB+ RAM (4GB recommended for VMs)
+- 20GB+ disk space (SSD preferred)
+- 1+ vCPU (2+ recommended)
+- Bridged networking recommended
+
 ## Quick Install
 
-### One-Line Installation
+### Standard Installation
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/n8n_installer_script.sh | sudo bash
+```
+
+### Proxmox VM Installation (Recommended for VMs)
+
+```bash
+# Proxmox-optimized installer with VM-specific settings
+curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install-proxmox.sh | sudo bash
+
+# Alternative: Clone and run locally (if curl fails in VMs)
+git clone https://github.com/sylvester-francis/n8n-selfhoster.git
+cd n8n-selfhoster
+sudo ./install-proxmox.sh
 ```
 
 ### Manual Installation
@@ -61,6 +81,82 @@ The installer will automatically:
 2. Add your service credentials (GitHub, Gmail, OpenAI, etc.)
 3. Create your first workflow
 4. (Optional) Set up Let's Encrypt for trusted certificates
+
+## Proxmox VM Installation
+
+### Automatic Detection and Optimization
+
+The installer automatically detects Proxmox VE environments and applies VM-specific optimizations:
+
+- **Extended timeouts**: Nginx timeouts increased from 60s to 300s
+- **VM-optimized Docker**: Specialized daemon configuration for virtual environments
+- **Memory management**: Automatic resource-conscious settings for constrained VMs
+- **Kernel tuning**: VM-specific kernel parameters for better performance
+- **Network optimization**: Enhanced buffer settings for virtualized networking
+- **Extended validation**: 15-minute timeout for N8N startup validation
+
+### Proxmox Installation Steps
+
+1. **Create Ubuntu VM in Proxmox**:
+   ```bash
+   # Recommended VM settings:
+   # - 2+ GB RAM (4GB preferred)
+   # - 2+ CPU cores
+   # - 20+ GB disk (SSD preferred)
+   # - VirtIO network adapter
+   # - Enable QEMU guest agent
+   ```
+
+2. **Install Ubuntu and Update**:
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   ```
+
+3. **Run Proxmox Installer**:
+   ```bash
+   # Option 1: Direct download
+   curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install-proxmox.sh | sudo bash
+   
+   # Option 2: Clone repository (recommended for curl issues)
+   git clone https://github.com/sylvester-francis/n8n-selfhoster.git
+   cd n8n-selfhoster
+   sudo ./install-proxmox.sh --yes
+   ```
+
+4. **Wait for Installation** (15-25 minutes for VMs):
+   - The installer will detect the Proxmox environment
+   - Extended timeouts will be automatically applied
+   - VM-specific Docker configuration will be used
+   - Network and memory optimizations will be applied
+
+5. **Verify Installation**:
+   ```bash
+   # Test direct N8N access (should be immediate)
+   curl -s http://localhost:5678
+   
+   # Test nginx proxy (may take a few minutes initially)
+   curl -k -s https://localhost
+   
+   # Check container status
+   cd /opt/n8n && docker-compose ps
+   ```
+
+### Proxmox VM Best Practices
+
+- **Enable hardware virtualization** in VM CPU settings
+- **Use VirtIO drivers** for better I/O performance
+- **Allocate adequate resources** (2+ GB RAM, 2+ CPU cores)
+- **Use SSD storage** for better Docker performance
+- **Configure bridged networking** for external access
+- **Enable QEMU guest agent** for better VM management
+
+### Expected Behavior in Proxmox VMs
+
+- **Installation time**: 15-25 minutes (vs 10-15 on bare metal)
+- **N8N startup**: 2-5 minutes after containers start
+- **Direct access**: `curl http://localhost:5678` responds immediately
+- **Proxy access**: `https://VM_IP` may take time during initial startup
+- **Resource usage**: Higher memory/CPU usage than bare metal
 
 ## Configuration Details
 

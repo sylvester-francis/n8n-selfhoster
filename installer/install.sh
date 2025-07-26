@@ -10,7 +10,7 @@
 #                                                                                 #
 # Description: Automated installer for N8N with HTTPS, PostgreSQL, and Nginx      #
 # Author: Sylvester Francis                                                       #
-# Version: 1.2.0 (Enhanced CLI Interface)                                        #
+# Version: 1.3.0 (Proxmox VM Support)                                        #
 # GitHub: https://github.com/sylvester-francis/n8n-selfhoster                     #
 #                                                                                 #
 # Features:                                                                       #
@@ -211,8 +211,14 @@ main() {
     
     # Run critical installation steps
     run_step_optimized "show_welcome" "show_welcome" || true
+    
+    # Detect and configure for Proxmox environment
+    run_step_optimized "detect_proxmox" "detect_proxmox_environment" || true
+    run_step_optimized "apply_proxmox_config" "apply_proxmox_optimizations" || true
+    
     run_step_optimized "check_requirements" "check_requirements" || exit 1
     run_step_optimized "get_configuration" "get_configuration" || exit 1
+    run_step_optimized "get_proxmox_configuration" "get_proxmox_configuration" || true
     
     # Wait for pre-checks to complete
     wait $precheck_pid 2>/dev/null || true
@@ -279,6 +285,8 @@ main() {
     
     # Run final validation
     log "DEBUG" "Running final tests"
+    run_step_optimized "run_proxmox_validation" "run_proxmox_validation" || true
+    
     if run_tests; then
         show_summary
         log "SUCCESS" "🚀 N8N installation completed successfully in ${minutes}m ${seconds}s!"

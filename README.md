@@ -2,7 +2,7 @@
 
 **High-performance, one-click installation script for a production-ready N8N instance on Ubuntu with HTTPS, PostgreSQL, and comprehensive security.**
 
-> **NEW in v1.2.1**: Major reliability improvements with enhanced non-interactive mode, robust password generation, and comprehensive testing suite!
+> **NEW in v1.3.0**: Proxmox VM support with automatic detection, extended timeouts, and VM-specific optimizations! Plus all v1.2.1 reliability improvements.
 
 [![Tests](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/quick-test.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/quick-test.yml)
 [![Integration Tests](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/test-installer.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/test-installer.yml)
@@ -11,6 +11,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Latest-blue.svg)](https://docker.com/)
 [![Nginx](https://img.shields.io/badge/Nginx-Latest-green.svg)](https://nginx.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Proxmox](https://img.shields.io/badge/Proxmox-VM%20Ready-green.svg)](https://www.proxmox.com/)
 
 ## ✨ Features
 
@@ -30,6 +31,15 @@
 - 🛡️ **Firewall protection** with UFW
 - 📦 **Automated daily backups** with rotation
 - 🔐 **Security hardening** with Fail2Ban
+
+### 🖥️ Virtualization Support
+
+- 🔍 **Automatic Proxmox detection** - Smart environment detection
+- ⏱️ **Extended VM timeouts** - 300s nginx timeouts vs 60s default
+- 🚀 **VM-optimized Docker** - Specialized daemon configuration
+- 🧠 **Memory management** - Automatic resource-conscious settings
+- 🌐 **Network optimization** - Enhanced buffer settings for VMs
+- 📊 **VM performance monitoring** - Real-time resource tracking
 
 ### 🎛️ Operations & Monitoring
 
@@ -52,6 +62,18 @@
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/n8n_installer_script.sh | sudo bash
+```
+
+### Proxmox VM Installation (Recommended for VMs)
+
+```bash
+# For Proxmox Ubuntu VMs - includes VM-specific optimizations
+curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install-proxmox.sh | sudo bash
+
+# Or clone and run locally (if curl fails)
+git clone https://github.com/sylvester-francis/n8n-selfhoster.git
+cd n8n-selfhoster
+sudo ./install-proxmox.sh
 ```
 
 ### Manual Installation
@@ -217,6 +239,15 @@ sudo fail2ban-client status nginx-n8n
 - ✅ Linode ($12/month for 2GB Nanode)
 - ✅ Vultr ($12/month for Regular instance)
 - ✅ Hetzner (€4.15/month for CX21)
+- ✅ Proxmox VE (local virtualization)
+
+### Proxmox VM Requirements
+
+- **OS**: Ubuntu 20.04+ VM
+- **RAM**: 2GB minimum, 4GB recommended
+- **Storage**: 20GB+ (SSD preferred)
+- **CPU**: 1+ vCPU (2+ recommended)
+- **Network**: Bridged networking recommended
 
 ## 🔍 Testing & Quality Assurance
 
@@ -292,7 +323,32 @@ For detailed troubleshooting, see our [Troubleshooting Guide](docs/troubleshooti
 
 ## 📋 Changelog & Release Notes
 
-### v1.2.1 (Latest) - Reliability & Quality Assurance Release
+### v1.3.0 (Latest) - Proxmox VM Support Release
+
+**🖥️ Major Virtualization Support:**
+
+- 🔍 **Automatic Proxmox detection** - 6-point detection system (systemd-detect-virt, DMI, QEMU agent, CPU model, memory patterns, network interfaces)
+- ⏱️ **Extended VM timeouts** - Nginx timeouts increased from 60s to 300s for VM environments
+- 🚀 **VM-optimized configurations** - Specialized Docker daemon, kernel parameters, and network settings
+- 📋 **Proxmox installer** - Dedicated `install-proxmox.sh` script for VM environments
+- 🌐 **Automatic VM IP detection** - Multiple fallback methods for reliable configuration
+- 📊 **Enhanced validation** - 15-minute startup timeout vs 5-minute default for VMs
+
+**🔧 Technical Improvements:**
+
+- 🏗️ **Modular architecture** - New `proxmox.sh` library module for VM-specific functionality
+- ⚙️ **Configurable timeouts** - Environment-aware timeout settings via variables
+- 🧠 **Memory-conscious settings** - Automatic resource optimization for constrained VMs
+- 🛠️ **Backward compatibility** - Zero breaking changes to existing installations
+
+**📖 Documentation & Usability:**
+
+- 📋 **Comprehensive Proxmox guide** - Complete troubleshooting and setup documentation
+- 🎯 **VM-specific best practices** - Resource allocation and performance recommendations
+- 🚀 **Multiple installation methods** - Dedicated Proxmox installer plus auto-detection
+- 📊 **Real-time feedback** - User notification when VM optimizations are applied
+
+### v1.2.1 - Reliability & Quality Assurance Release
 
 **🛠️ Major Reliability Improvements:**
 
@@ -380,6 +436,53 @@ For detailed troubleshooting, see our [Troubleshooting Guide](docs/troubleshooti
 - 🛡️ Security hardening (UFW, Fail2Ban)
 - 📦 Automated backup system
 - ✅ Comprehensive testing suite
+
+## 🖥️ Proxmox VM Support
+
+### Proxmox-Specific Optimizations
+
+The installer automatically detects Proxmox VE environments and applies VM-specific optimizations:
+
+- **Extended Timeouts**: Nginx timeouts increased from 60s to 300s for slower VM startup
+- **VM-Optimized Docker**: Specialized Docker daemon configuration for virtual environments
+- **Memory Management**: Automatic memory-conscious settings for constrained VMs
+- **Kernel Tuning**: VM-specific kernel parameters for better performance
+- **Network Optimization**: Enhanced buffer settings for virtualized networking
+- **Extended Validation**: 15-minute timeout for N8N startup validation
+
+### Installation for Proxmox VMs
+
+```bash
+# Recommended: Use the Proxmox-optimized installer
+sudo ./install-proxmox.sh
+
+# Or force Proxmox optimizations with regular installer
+sudo ./installer/install.sh --yes --domain $(hostname -I | awk '{print $1}')
+```
+
+### Proxmox VM Best Practices
+
+1. **Resource Allocation**:
+   - Minimum 2GB RAM (4GB recommended)
+   - 2+ CPU cores for better performance
+   - SSD storage preferred for Docker performance
+
+2. **Network Configuration**:
+   - Use bridged networking for external access
+   - Configure firewall rules on Proxmox host if needed
+   - Consider using a domain name instead of IP
+
+3. **Performance Tips**:
+   - Enable hardware virtualization in VM settings
+   - Use VirtIO drivers for better I/O performance
+   - Monitor resource usage during installation
+
+### Troubleshooting Proxmox VMs
+
+**Slow Installation**: VMs typically take 15-25 minutes vs 10-15 on bare metal
+**Timeout Errors**: The installer automatically extends timeouts for VMs
+**Network Issues**: Ensure VM has internet access and proper routing
+**Certificate Warnings**: Normal with self-signed certs, use Let's Encrypt for production
 
 ## 🔄 Updates
 
@@ -503,6 +606,7 @@ n8n-selfhoster/
 │       ├── nginx.sh           # Nginx and reverse proxy setup
 │       ├── n8n.sh             # N8N configuration and setup
 │       ├── performance.sh     # Performance optimization functions
+│       ├── proxmox.sh         # Proxmox VM detection and optimization (NEW)
 │       ├── security.sh        # Security hardening (UFW, Fail2Ban)
 │       ├── ssl.sh             # SSL certificate generation
 │       ├── system.sh          # System requirements and updates
@@ -510,8 +614,17 @@ n8n-selfhoster/
 ├── tests/                      # Comprehensive testing suite
 │   ├── test-installer.sh      # Basic installation test
 │   ├── test-comprehensive.sh  # Multi-environment testing
+│   ├── test-proxmox-fixes.sh  # Proxmox VM testing (NEW)
 │   ├── test-quick.sh          # Quick validation tests
 │   └── test-focused.sh        # Targeted component tests
+├── docs/                       # Documentation
+│   ├── installation.md        # Detailed installation guide
+│   ├── troubleshooting.md     # Troubleshooting guide  
+│   ├── security.md           # Security best practices
+│   ├── https-setup.md        # HTTPS configuration
+│   ├── proxmox-setup.md      # Proxmox-specific setup (NEW)
+│   └── proxmox-complete-guide.md # Complete Proxmox guide (NEW)
+├── install-proxmox.sh         # Dedicated Proxmox installer (NEW)
 └── README.md                  # This documentation
 ```
 
