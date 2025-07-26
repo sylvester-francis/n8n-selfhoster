@@ -162,10 +162,10 @@ server {
         proxy_set_header Upgrade \\\$http_upgrade;
         proxy_set_header Connection "upgrade";
         
-        # Timeouts
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        # Timeouts (increased for Proxmox VMs and slow startup)
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
         
         # Disable buffering for real-time features
         proxy_buffering off;

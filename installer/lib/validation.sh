@@ -39,11 +39,11 @@ run_tests() {
         fi
     fi
     
-    # Test 2: Check if N8N is responding locally with retry
+    # Test 2: Check if N8N is responding locally with extended retry for Proxmox VMs
     log "INFO" "Test 2: Checking N8N local response..."
     local n8n_ready=false
-    for i in {1..5}; do
-        if curl -s -m 10 http://localhost:5678 >/dev/null 2>&1; then
+    for i in {1..30}; do
+        if curl -s -m 30 http://localhost:5678 >/dev/null 2>&1; then
             log "SUCCESS" "✓ N8N is responding on localhost:5678"
             n8n_ready=true
             ((tests_passed++))
