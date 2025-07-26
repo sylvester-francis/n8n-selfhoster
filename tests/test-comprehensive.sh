@@ -135,8 +135,8 @@ test_help_and_version() {
     
     log "INFO" "Testing help and version commands..."
     
-    run_test "Help Command" "$vm_name" "cd installer && ./install.sh --help | grep -q 'USAGE'" 0
-    run_test "Version Command" "$vm_name" "cd installer && ./install.sh --version | grep -q 'v1.2.0'" 0
+    run_test "Help Command" "$vm_name" "./install.sh --help | grep -q 'USAGE'" 0
+    run_test "Version Command" "$vm_name" "./install.sh --version | grep -q 'v1.3.0'" 0
 }
 
 test_non_interactive_installation() {

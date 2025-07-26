@@ -10,7 +10,7 @@
 #                                                                                 #
 # Description: Automated installer for N8N with HTTPS, PostgreSQL, and Nginx      #
 # Author: Sylvester Francis                                                       #
-# Version: 1.2.0 (Enhanced CLI Interface)                                        #
+# Version: 1.3.0 (Proxmox VM Support + Unified Entry Point)                                        #
 # GitHub: https://github.com/sylvester-francis/n8n-selfhoster                     #
 #                                                                                 #
 # Features:                                                                       #
@@ -31,7 +31,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source all library modules (including performance optimizations)
-for lib in "$SCRIPT_DIR"/lib/*.sh; do
+for lib in "$SCRIPT_DIR"/installer/lib/*.sh; do
     if [ -f "$lib" ]; then
         # shellcheck source=/dev/null
         source "$lib"
@@ -56,6 +56,7 @@ OPTIONS:
     -d, --domain DOMAIN     Set domain name (e.g., example.com)
     -i, --ip IP             Set server IP address
     -t, --timezone TZ       Set timezone (e.g., America/New_York)
+    --type TYPE             Installation type: standard, proxmox, auto (default: auto)
     --skip-firewall         Skip firewall configuration
     --skip-ssl              Skip SSL certificate generation
     --skip-backups          Skip backup configuration
@@ -64,15 +65,23 @@ OPTIONS:
     --dry-run               Show what would be done without executing
     --force-interactive     Force interactive mode even without TTY
 
+INSTALLATION TYPES:
+    standard    Standard installation for physical/bare metal servers
+    proxmox     Proxmox VM optimized installation with extended timeouts
+    auto        Auto-detect environment and apply appropriate optimizations (default)
+
 EXAMPLES:
-    # Interactive installation
+    # Interactive installation (auto-detects environment)
     sudo $0
 
-    # Non-interactive with domain
-    sudo $0 --yes --domain myserver.com
+    # Force Proxmox optimizations
+    sudo $0 --type proxmox --yes --domain myserver.com
 
-    # Quick installation with IP
-    sudo $0 --quick --ip 192.168.1.100 --yes
+    # Standard installation without VM optimizations
+    sudo $0 --type standard --ip 192.168.1.100 --yes
+
+    # Auto-detect with quick installation
+    sudo $0 --quick --yes
 
     # Dry run to see what would happen
     sudo $0 --dry-run
@@ -98,6 +107,7 @@ parse_arguments() {
     export VERBOSE=false
     export DRY_RUN=false
     export FORCE_INTERACTIVE=false
+    export INSTALLATION_TYPE="auto"  # auto, standard, proxmox
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -124,6 +134,18 @@ parse_arguments() {
                 ;;
             -t|--timezone)
                 export TIMEZONE="$2"
+                shift 2
+                ;;
+            --type)
+                case "$2" in
+                    auto|standard|proxmox)
+                        export INSTALLATION_TYPE="$2"
+                        ;;
+                    *)
+                        echo "Error: Invalid installation type '$2'. Must be: auto, standard, or proxmox" >&2
+                        exit 1
+                        ;;
+                esac
                 shift 2
                 ;;
             --skip-firewall)
@@ -211,8 +233,28 @@ main() {
     
     # Run critical installation steps
     run_step_optimized "show_welcome" "show_welcome" || true
+    
+    # Apply environment-specific optimizations based on installation type
+    if [ "${INSTALLATION_TYPE:-}" = "proxmox" ]; then
+        log "INFO" "Applying Proxmox VM optimizations..."
+        run_step_optimized "detect_proxmox" "detect_proxmox_environment" || true
+        run_step_optimized "apply_proxmox_config" "apply_proxmox_optimizations" || true
+    else
+        log "INFO" "Using standard installation mode"
+        # Still detect Proxmox for automatic optimizations if not explicitly disabled
+        if [ "${PROXMOX_OPTIMIZATIONS:-true}" = "true" ]; then
+            run_step_optimized "detect_proxmox" "detect_proxmox_environment" || true
+            run_step_optimized "apply_proxmox_config" "apply_proxmox_optimizations" || true
+        fi
+    fi
+    
     run_step_optimized "check_requirements" "check_requirements" || exit 1
     run_step_optimized "get_configuration" "get_configuration" || exit 1
+    
+    # Get Proxmox-specific configuration if using Proxmox mode
+    if [ "${INSTALLATION_TYPE:-}" = "proxmox" ]; then
+        run_step_optimized "get_proxmox_configuration" "get_proxmox_configuration" || true
+    fi
     
     # Wait for pre-checks to complete
     wait $precheck_pid 2>/dev/null || true
@@ -279,6 +321,8 @@ main() {
     
     # Run final validation
     log "DEBUG" "Running final tests"
+    run_step_optimized "run_proxmox_validation" "run_proxmox_validation" || true
+    
     if run_tests; then
         show_summary
         log "SUCCESS" "🚀 N8N installation completed successfully in ${minutes}m ${seconds}s!"

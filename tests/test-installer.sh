@@ -82,7 +82,7 @@ multipass transfer installer/lib/ssl.sh n8n-test:n8n-selfhoster/installer/lib/ss
 multipass transfer installer/lib/system.sh n8n-test:n8n-selfhoster/installer/lib/system.sh
 multipass transfer installer/lib/validation.sh n8n-test:n8n-selfhoster/installer/lib/validation.sh
 multipass transfer installer/lib/performance.sh n8n-test:n8n-selfhoster/installer/lib/performance.sh
-multipass transfer installer/install.sh n8n-test:n8n-selfhoster/installer/install.sh
+multipass transfer install.sh n8n-test:n8n-selfhoster/install.sh
 
 # Record start time for performance measurement
 START_TIME=$(date +%s)
@@ -91,8 +91,8 @@ START_TIME=$(date +%s)
 echo "⚙️ Running N8N installer..."
 multipass exec n8n-test -- bash -c "
     cd n8n-selfhoster && 
-    sudo chmod +x installer/install.sh && 
-    sudo ./installer/install.sh --yes --ip ${VM_IP}
+    sudo chmod +x install.sh && 
+    sudo ./install.sh --yes --ip ${VM_IP}
 "
 
 # Calculate installation time
