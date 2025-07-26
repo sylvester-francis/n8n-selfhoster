@@ -36,7 +36,7 @@ multipass exec n8n-proxmox-test -- bash -c "
     
     echo '=== Testing Local Installation Method (Fix for curl issue) ==='
     # This tests the local installation fix for Proxmox
-    sudo ./installer/install.sh --yes --domain $VM_IP --quick
+    sudo ./install.sh --yes --domain $VM_IP --quick
 "
 
 # Calculate installation time

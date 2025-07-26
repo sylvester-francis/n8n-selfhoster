@@ -289,41 +289,170 @@ init_logging() {
     log "INFO" "Starting N8N Self-Hosted Installer v$SCRIPT_VERSION"
 }
 
-# Show welcome message
+# Show welcome message with environment detection and installation type selection
 show_welcome() {
     # Only clear screen in truly interactive mode
     if [ -t 0 ] && [ -t 1 ] && [ -t 2 ] && [ -z "${SSH_CONNECTION:-}" ]; then
         clear 2>/dev/null || true
     fi
     
-    echo "N8N SELF-HOSTED INSTALLER"
-    echo "Production-Ready Ubuntu Installation"
-    echo "Version $SCRIPT_VERSION"
-    echo
-    echo "What this installer will do:"
-    echo "- Install Docker & Docker Compose"
-    echo "- Set up N8N with PostgreSQL database"
-    echo "- Configure Nginx reverse proxy with HTTPS"
-    echo "- Generate self-signed SSL certificates"
-    echo "- Configure firewall and security settings"
-    echo "- Set up automated backups"
-    echo "- Perform comprehensive testing"
-    echo
-    echo "Estimated installation time: 10-15 minutes"
-    echo "Log file: $LOG_FILE"
+    print_color "$CYAN" "╔══════════════════════════════════════════════════════════════════════════════╗"
+    print_color "$CYAN" "║                                                                              ║"
+    print_color "$CYAN" "║                    🚀 N8N Self-Hosted Installer 🚀                          ║"
+    print_color "$CYAN" "║                                                                              ║"
+    print_color "$CYAN" "║                    Production-Ready Ubuntu Installation                      ║"
+    print_color "$CYAN" "║                            Version $SCRIPT_VERSION                                        ║"
+    print_color "$CYAN" "║                                                                              ║"
+    print_color "$CYAN" "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo
     
-    if is_interactive; then
-        read -rp "Do you want to continue? (y/N): " -n 1 -r
+    # Detect environment
+    local environment_type="unknown"
+    local environment_info=""
+    
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+        local virt_type=$(systemd-detect-virt 2>/dev/null || echo "none")
+        if [[ "$virt_type" != "none" ]]; then
+            environment_type="virtual"
+            environment_info="$virt_type"
+            
+            # Check if it's likely Proxmox
+            if [[ "$virt_type" == "kvm" ]] && detect_proxmox_environment >/dev/null 2>&1; then
+                environment_type="proxmox"
+                environment_info="Proxmox VM"
+            fi
+        else
+            environment_type="physical"
+            environment_info="Physical/Bare Metal"
+        fi
+    fi
+    
+    print_color "$BLUE" "${INFO} Environment Detection:"
+    print_color "$WHITE" "  System Type: $environment_info"
+    
+    if [ "$environment_type" = "proxmox" ]; then
+        print_color "$GREEN" "  ${SUCCESS} Proxmox VM detected - optimizations available!"
+    elif [ "$environment_type" = "virtual" ]; then
+        print_color "$YELLOW" "  ${WARNING} Virtual machine detected - some optimizations available"
+    fi
+    
+    echo
+    print_color "$YELLOW" "📋 What this installer includes:"
+    print_color "$WHITE" "  • Docker & Docker Compose installation"
+    print_color "$WHITE" "  • N8N with PostgreSQL database"
+    print_color "$WHITE" "  • Nginx reverse proxy with HTTPS"
+    print_color "$WHITE" "  • Self-signed SSL certificates"
+    print_color "$WHITE" "  • Firewall and security configuration"
+    print_color "$WHITE" "  • Automated backups"
+    print_color "$WHITE" "  • Comprehensive testing"
+    
+    if [ "$environment_type" = "proxmox" ]; then
         echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log "INFO" "Installation cancelled by user"
-            exit 0
+        print_color "$GREEN" "${SUCCESS} Proxmox VM Optimizations:"
+        print_color "$WHITE" "  • Extended timeouts (nginx: 300s, validation: 15min)"
+        print_color "$WHITE" "  • VM-optimized Docker configuration"
+        print_color "$WHITE" "  • Memory-conscious N8N settings"
+        print_color "$WHITE" "  • Kernel parameter tuning for VMs"
+        print_color "$WHITE" "  • Automatic VM IP detection"
+        export PROXMOX_OPTIMIZATIONS=true
+    fi
+    
+    echo
+    local estimated_time="10-15 minutes"
+    if [ "$environment_type" = "proxmox" ] || [ "$environment_type" = "virtual" ]; then
+        estimated_time="15-25 minutes"
+    fi
+    
+    print_color "$BLUE" "${INFO} Installation Info:"
+    print_color "$WHITE" "  Estimated time: $estimated_time"
+    print_color "$WHITE" "  Log file: $LOG_FILE"
+    echo
+    
+    # Handle installation type selection based on command line argument or user interaction
+    if [ "${INSTALLATION_TYPE:-auto}" = "auto" ]; then
+        if is_interactive; then
+            # In interactive mode, offer installation type selection
+            if [ "$environment_type" = "proxmox" ]; then
+                print_color "$YELLOW" "🖥️ Installation Options:"
+                print_color "$WHITE" "  1) Proxmox-optimized installation (Recommended)"
+                print_color "$WHITE" "  2) Standard installation"
+                print_color "$WHITE" "  3) Cancel"
+                echo
+                
+                while true; do
+                    read -rp "Select installation type (1-3): " choice
+                    case $choice in
+                        1)
+                            export INSTALLATION_TYPE="proxmox"
+                            print_color "$GREEN" "${SUCCESS} Proxmox-optimized installation selected"
+                            break
+                            ;;
+                        2)
+                            export INSTALLATION_TYPE="standard"
+                            export PROXMOX_OPTIMIZATIONS=false
+                            print_color "$BLUE" "${INFO} Standard installation selected"
+                            break
+                            ;;
+                        3)
+                            log "INFO" "Installation cancelled by user"
+                            exit 0
+                            ;;
+                        *)
+                            print_color "$RED" "Invalid choice. Please select 1, 2, or 3."
+                            ;;
+                    esac
+                done
+            else
+                print_color "$YELLOW" "Continue with installation? (y/N): "
+                read -rp "" -n 1 -r
+                echo
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    log "INFO" "Installation cancelled by user"
+                    exit 0
+                fi
+                export INSTALLATION_TYPE="standard"
+            fi
+        else
+            # Non-interactive mode - auto-select based on environment
+            if [ "$environment_type" = "proxmox" ]; then
+                export INSTALLATION_TYPE="proxmox"
+                log "INFO" "Auto-detection: selected Proxmox-optimized installation"
+                print_color "$GREEN" "${SUCCESS} Auto-selected: Proxmox-optimized installation"
+            else
+                export INSTALLATION_TYPE="standard"
+                log "INFO" "Auto-detection: proceeding with standard installation"
+                print_color "$BLUE" "${INFO} Auto-selected: Standard installation"
+            fi
         fi
     else
-        log "INFO" "Running in non-interactive mode, proceeding automatically"
-        echo "Proceeding with installation..."
+        # Installation type was specified via command line
+        case "${INSTALLATION_TYPE}" in
+            "proxmox")
+                export PROXMOX_OPTIMIZATIONS=true
+                print_color "$GREEN" "${SUCCESS} Using Proxmox-optimized installation (specified via --type)"
+                log "INFO" "Installation type forced to Proxmox via command line"
+                ;;
+            "standard")
+                export PROXMOX_OPTIMIZATIONS=false
+                print_color "$BLUE" "${INFO} Using standard installation (specified via --type)"
+                log "INFO" "Installation type forced to standard via command line"
+                ;;
+        esac
+        
+        if is_interactive; then
+            print_color "$YELLOW" "Continue with installation? (y/N): "
+            read -rp "" -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log "INFO" "Installation cancelled by user"
+                exit 0
+            fi
+        fi
     fi
+    
+    echo
+    print_color "$GREEN" "${SUCCESS} Starting installation..."
+    sleep 2
 }
 
 # Enhanced input validation
