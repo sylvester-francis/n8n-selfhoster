@@ -18,21 +18,22 @@
 ## Table of Contents
 
 1. [🚀 Quick Start](#-quick-start)
-2. [✨ Features](#-features)
-3. [📋 System Requirements](#-system-requirements)
-4. [🛠️ Installation Methods](#️-installation-methods)
-5. [🖥️ Proxmox VM Installation](#️-proxmox-vm-installation)
-6. [⚙️ Configuration Options](#️-configuration-options)
-7. [🎯 Post-Installation Setup](#-post-installation-setup)
-8. [🔧 Management & Operations](#-management--operations)
-9. [🔒 Security Configuration](#-security-configuration)
-10. [⚡ Performance Optimization](#-performance-optimization)
-11. [🔍 Troubleshooting](#-troubleshooting)
-12. [🏗️ Advanced Configuration](#️-advanced-configuration)
-13. [💾 Backup & Recovery](#-backup--recovery)
-14. [🧪 Testing & Validation](#-testing--validation)
-15. [📋 Version History](#-version-history)
-16. [📚 Reference](#-reference)
+2. [📖 Documentation](#-documentation)
+3. [✨ Features](#-features)
+4. [📋 System Requirements](#-system-requirements)
+5. [🛠️ Installation Methods](#️-installation-methods)
+6. [🖥️ Proxmox VM Installation](#️-proxmox-vm-installation)
+7. [⚙️ Configuration Options](#️-configuration-options)
+8. [🎯 Post-Installation Setup](#-post-installation-setup)
+9. [🔧 Management & Operations](#-management--operations)
+10. [🔒 Security Configuration](#-security-configuration)
+11. [⚡ Performance Optimization](#-performance-optimization)
+12. [🔍 Troubleshooting](#-troubleshooting)
+13. [🏗️ Advanced Configuration](#️-advanced-configuration)
+14. [💾 Backup & Recovery](#-backup--recovery)
+15. [🧪 Testing & Validation](#-testing--validation)
+16. [📋 Version History](#-version-history)
+17. [📚 Reference](#-reference)
 
 ---
 
@@ -98,6 +99,29 @@ task dry-run
 # Show all available commands
 task --list
 ```
+
+---
+
+## 📖 Documentation
+
+Complete documentation is available in the **[docs folder](docs/)**:
+
+### 🚀 Getting Started
+- **[Installation Guide](docs/installation.md)** - Comprehensive installation instructions
+- **[Quick Start Guide](docs/quick-start.md)** - Get up and running in minutes
+- **[System Requirements](docs/requirements.md)** - Prerequisites and compatibility
+
+### 🔧 Operations & Management
+- **[Task Commands Reference](docs/task-commands.md)** - Complete command documentation
+- **[Service Management](docs/service-management.md)** - Day-to-day operations and monitoring
+- **[Backup & Restore](docs/backup-restore.md)** - Data protection strategies
+
+### 🔄 Migration & Development
+- **[Migration Guide](docs/migration.md)** - Shell script to Task architecture migration
+
+For quick help: `task help` or `task --list`
+
+---
 
 ### What Gets Installed
 
