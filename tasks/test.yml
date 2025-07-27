@@ -124,28 +124,43 @@ tasks:
         echo "🏥 N8N Health Check..."
         
         ERRORS=0
+        CI_MODE="${CI:-false}"
         
         # Check if N8N directory exists
         if [ -d "{{.N8N_DIR}}" ]; then
           echo "✅ N8N directory exists"
         else
           echo "❌ N8N directory not found"
-          ERRORS=$((ERRORS + 1))
+          if [ "$CI_MODE" != "true" ]; then
+            ERRORS=$((ERRORS + 1))
+          fi
         fi
         
-        # Check if Docker is running
-        if docker info >/dev/null 2>&1; then
-          echo "✅ Docker is running"
+        # Check if Docker is available
+        if command -v docker >/dev/null 2>&1; then
+          echo "✅ Docker command available"
+          
+          # Check if Docker is running (only fail in non-CI)
+          if docker info >/dev/null 2>&1; then
+            echo "✅ Docker is running"
+          else
+            echo "❌ Docker is not running"
+            if [ "$CI_MODE" != "true" ]; then
+              ERRORS=$((ERRORS + 1))
+            fi
+          fi
         else
-          echo "❌ Docker is not running"
-          ERRORS=$((ERRORS + 1))
+          echo "❌ Docker not installed"
+          if [ "$CI_MODE" != "true" ]; then
+            ERRORS=$((ERRORS + 1))
+          fi
         fi
         
         # Check if N8N containers are running
         if [ -f "{{.N8N_DIR}}/docker-compose.yml" ]; then
           cd {{.N8N_DIR}}
           
-          if docker-compose ps | grep -q "Up"; then
+          if docker-compose ps 2>/dev/null | grep -q "Up"; then
             echo "✅ N8N containers are running"
             
             # Check N8N health endpoint
@@ -185,20 +200,28 @@ tasks:
       - |
         echo "🌐 Testing N8N connectivity..."
         
+        CI_MODE="${CI:-false}"
+        
         # Test local connectivity
         echo "🔍 Testing local access:"
-        if curl -f -s http://localhost:5678 >/dev/null; then
+        if curl -f -s http://localhost:5678 >/dev/null 2>&1; then
           echo "  ✅ HTTP (localhost:5678): OK"
         else
           echo "  ❌ HTTP (localhost:5678): Failed"
+          if [ "$CI_MODE" = "true" ]; then
+            echo "  ℹ️ Expected in CI environment without N8N running"
+          fi
         fi
         
         # Test through Nginx
         echo "🔍 Testing through Nginx:"
-        if curl -f -s http://localhost >/dev/null; then
+        if curl -f -s http://localhost >/dev/null 2>&1; then
           echo "  ✅ HTTP (port 80): OK"
         else
           echo "  ❌ HTTP (port 80): Failed"
+          if [ "$CI_MODE" = "true" ]; then
+            echo "  ℹ️ Expected in CI environment without Nginx running"
+          fi
         fi
         
         # Test HTTPS if configured
@@ -260,31 +283,42 @@ tasks:
       - |
         echo "🔒 Security Testing..."
         
+        CI_MODE="${CI:-false}"
+        
         # Check firewall status
         echo "🔥 Firewall:"
         if command -v ufw >/dev/null 2>&1; then
-          if sudo ufw status | grep -q "Status: active"; then
+          if sudo ufw status 2>/dev/null | grep -q "Status: active"; then
             echo "  ✅ UFW is active"
           else
             echo "  ❌ UFW is inactive"
+            if [ "$CI_MODE" = "true" ]; then
+              echo "  ℹ️ Expected in CI environment"
+            fi
           fi
         else
           echo "  ❌ UFW not installed"
+          if [ "$CI_MODE" = "true" ]; then
+            echo "  ℹ️ Expected in CI environment"
+          fi
         fi
         
         # Check fail2ban
         echo ""
         echo "🛡️ Fail2Ban:"
-        if systemctl is-active --quiet fail2ban; then
+        if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet fail2ban 2>/dev/null; then
           echo "  ✅ Fail2Ban is active"
         else
           echo "  ❌ Fail2Ban is inactive"
+          if [ "$CI_MODE" = "true" ]; then
+            echo "  ℹ️ Expected in CI environment"
+          fi
         fi
         
         # Check SSL configuration
         echo ""
         echo "🔐 SSL Configuration:"
-        if sudo nginx -t 2>&1 | grep -q "ssl"; then
+        if command -v nginx >/dev/null 2>&1 && sudo nginx -t 2>/dev/null | grep -q "ssl"; then
           echo "  ✅ SSL configured"
         else
           echo "  ❌ SSL not configured"

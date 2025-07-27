@@ -311,7 +311,8 @@ show_welcome() {
     local environment_info=""
     
     if command -v systemd-detect-virt >/dev/null 2>&1; then
-        local virt_type=$(systemd-detect-virt 2>/dev/null || echo "none")
+        local virt_type
+        virt_type=$(systemd-detect-virt 2>/dev/null || echo "none")
         if [[ "$virt_type" != "none" ]]; then
             environment_type="virtual"
             environment_info="$virt_type"

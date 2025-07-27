@@ -24,7 +24,7 @@ Welcome to the comprehensive documentation for the N8N Self-Hosted Installer pro
 - **[Proxmox Integration](proxmox.md)** - Virtualized environment optimizations
 - **[SSL/TLS Configuration](ssl.md)** - Certificate management
 - **[Performance Tuning](performance.md)** - Optimization strategies
-- **[CI/CD Integration](cicd.md)** - Automated testing and deployment
+- **[CI/CD Integration](cicd.md)** - Automated testing and deployment pipeline
 
 ### Reference
 - **[Configuration Reference](configuration.md)** - All configuration options
