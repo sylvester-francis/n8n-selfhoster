@@ -26,7 +26,8 @@ detect_proxmox_environment() {
     
     # Check 1: systemd-detect-virt
     if command_exists systemd-detect-virt; then
-        local virt_type=$(systemd-detect-virt 2>/dev/null || echo "none")
+        local virt_type
+        virt_type=$(systemd-detect-virt 2>/dev/null || echo "none")
         log "DEBUG" "Virtualization type detected: $virt_type"
         
         if [[ "$virt_type" == "kvm" || "$virt_type" == "qemu" ]]; then
@@ -37,7 +38,8 @@ detect_proxmox_environment() {
     
     # Check 2: DMI information for QEMU
     if [ -r "/sys/class/dmi/id/product_name" ]; then
-        local product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null || echo "")
+        local product_name
+        product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null || echo "")
         if [[ "$product_name" == *"QEMU"* ]]; then
             ((proxmox_indicators++))
             log "INFO" "QEMU product name detected in DMI"
@@ -59,7 +61,8 @@ detect_proxmox_environment() {
     fi
     
     # Check 5: Memory constraints typical of VMs
-    local total_mem_gb=$(free -g | awk 'NR==2{print $2}')
+    local total_mem_gb
+    total_mem_gb=$(free -g | awk 'NR==2{print $2}')
     if [ "$total_mem_gb" -le 4 ] && [ "$proxmox_indicators" -gt 0 ]; then
         ((proxmox_indicators++))
         log "INFO" "VM-typical memory constraints detected (${total_mem_gb}GB)"
@@ -226,7 +229,8 @@ get_proxmox_configuration() {
     
     # Auto-detect VM IP (more reliable in Proxmox)
     if [ -z "$DOMAIN_NAME" ] || [ "$DOMAIN_NAME" = "localhost" ]; then
-        local vm_ip=$(get_proxmox_vm_ip)
+        local vm_ip
+        vm_ip=$(get_proxmox_vm_ip)
         if [ -n "$vm_ip" ]; then
             DOMAIN_NAME="$vm_ip"
             log "INFO" "Auto-detected Proxmox VM IP: $vm_ip"
@@ -234,7 +238,8 @@ get_proxmox_configuration() {
     fi
     
     # Adjust memory settings based on VM allocation
-    local total_mem_mb=$(free -m | awk 'NR==2{print $2}')
+    local total_mem_mb
+    total_mem_mb=$(free -m | awk 'NR==2{print $2}')
     if [ "$total_mem_mb" -lt 4096 ]; then
         log "WARNING" "Low memory detected (${total_mem_mb}MB). Applying memory optimizations..."
         export N8N_MAX_EXECUTION_DATA_SIZE="5MB"
@@ -354,11 +359,13 @@ validate_proxmox_performance() {
     log "INFO" "Validating Proxmox VM performance..."
     
     # Check memory usage
-    local mem_usage=$(free | awk 'NR==2{printf "%.1f", $3*100/$2}')
+    local mem_usage
+    mem_usage=$(free | awk 'NR==2{printf "%.1f", $3*100/$2}')
     log "INFO" "Memory usage: ${mem_usage}%"
     
     # Check disk I/O
-    local disk_usage=$(df /opt/n8n 2>/dev/null | awk 'NR==2{print $5}' | sed 's/%//')
+    local disk_usage
+    disk_usage=$(df /opt/n8n 2>/dev/null | awk 'NR==2{print $5}' | sed 's/%//')
     log "INFO" "Disk usage: ${disk_usage}%"
     
     # Check if containers are resource-constrained
