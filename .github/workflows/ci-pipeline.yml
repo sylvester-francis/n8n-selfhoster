@@ -36,7 +36,7 @@ jobs:
           echo "key=task-${{ runner.os }}-${{ hashFiles('Taskfile.yml', 'tasks/*.yml') }}" >> $GITHUB_OUTPUT
 
       - name: Cache Task installation
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /usr/local/bin/task
           key: ${{ steps.cache-key.outputs.key }}
@@ -91,7 +91,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Cache Task installation
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /usr/local/bin/task
           key: ${{ needs.code-quality.outputs.cache-key }}
@@ -187,7 +187,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Cache Task installation
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /usr/local/bin/task
           key: ${{ needs.code-quality.outputs.cache-key }}
@@ -294,7 +294,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Cache Task installation
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /usr/local/bin/task
           key: ${{ needs.code-quality.outputs.cache-key }}
@@ -329,7 +329,7 @@ jobs:
           ls -la release/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: n8n-selfhoster-${{ github.sha }}
           path: release/
