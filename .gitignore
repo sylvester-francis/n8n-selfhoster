@@ -106,3 +106,6 @@ Thumbs.db
 
 # Docker
 .dockerignore
+
+# Claude
+.claude
