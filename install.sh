@@ -10,7 +10,7 @@
 #                                                                                 #
 # Description: Automated installer for N8N with HTTPS, PostgreSQL, and Nginx      #
 # Author: Sylvester Francis                                                       #
-# Version: 1.3.0 (Proxmox VM Support + Unified Entry Point)                                        #
+# Version: 1.3.1 (Task Architecture Migration)                                        #
 # GitHub: https://github.com/sylvester-francis/n8n-selfhoster                     #
 #                                                                                 #
 # Features:                                                                       #

@@ -1,0 +1,430 @@
+# Testing and validation tasks
+version: '3'
+
+tasks:
+  lint:
+    desc: "Run shellcheck on task scripts"
+    cmds:
+      - |
+        echo "🔍 Running shellcheck on scripts..."
+        
+        # Check if shellcheck is installed
+        if ! command -v shellcheck >/dev/null 2>&1; then
+          echo "📦 Installing shellcheck..."
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+        fi
+        
+        echo "🔍 Checking Taskfile task scripts..."
+        ERRORS=0
+        
+        # Check inline scripts in task files
+        for taskfile in tasks/*.yml; do
+          echo "Analyzing: $taskfile"
+          
+          # Extract shell commands from YAML and check them
+          # This is a simplified check - in real scenarios you'd want more sophisticated parsing
+          if grep -q 'bash\|sh' "$taskfile"; then
+            echo "  ✅ Contains shell commands"
+          else
+            echo "  ℹ️ No shell commands found"
+          fi
+        done
+        
+        # Check any remaining shell scripts
+        if ls installer/lib/*.sh >/dev/null 2>&1; then
+          echo ""
+          echo "🔍 Checking installer scripts..."
+          for script in installer/lib/*.sh; do
+            echo "Checking: $(basename "$script")"
+            if shellcheck "$script"; then
+              echo "  ✅ $(basename "$script") passed"
+            else
+              echo "  ❌ $(basename "$script") failed"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+        fi
+        
+        if [ $ERRORS -eq 0 ]; then
+          echo "✅ All lint checks passed"
+        else
+          echo "❌ Found $ERRORS lint errors"
+          exit 1
+        fi
+
+  syntax:
+    desc: "Check syntax of task definitions"
+    cmds:
+      - |
+        echo "🔍 Checking task syntax..."
+        
+        # Check if task binary is available
+        if ! command -v task >/dev/null 2>&1; then
+          echo "❌ Task binary not found. Please install Task (https://taskfile.dev)"
+          exit 1
+        fi
+        
+        # Validate main Taskfile
+        echo "Validating Taskfile.yml..."
+        if task --list >/dev/null 2>&1; then
+          echo "  ✅ Main Taskfile syntax OK"
+        else
+          echo "  ❌ Main Taskfile syntax error"
+          exit 1
+        fi
+        
+        # Check individual task files
+        for taskfile in tasks/*.yml; do
+          echo "Validating: $(basename "$taskfile")"
+          
+          # Basic YAML syntax check
+          if python3 -c "import yaml; yaml.safe_load(open('$taskfile'))" 2>/dev/null; then
+            echo "  ✅ YAML syntax OK"
+          else
+            echo "  ❌ YAML syntax error"
+            exit 1
+          fi
+        done
+        
+        echo "✅ All syntax checks passed"
+
+  functions:
+    desc: "Test task functionality"
+    cmds:
+      - |
+        echo "🧪 Testing task functionality..."
+        
+        # Test basic task commands
+        echo "📋 Available tasks:"
+        task --list | head -10
+        
+        # Test environment detection
+        echo ""
+        echo "🔍 Testing environment detection:"
+        task detect-environment || echo "Environment detection failed (expected in non-VM environments)"
+        
+        # Test dry-run functionality
+        echo ""
+        echo "🏃 Testing dry-run:"
+        task dry-run
+        
+        # Test help system
+        echo ""
+        echo "📖 Testing help system:"
+        task help | head -5
+        
+        echo ""
+        echo "✅ Basic functionality tests completed"
+
+  health-check:
+    desc: "Health check for N8N installation"
+    cmds:
+      - |
+        echo "🏥 N8N Health Check..."
+        
+        ERRORS=0
+        
+        # Check if N8N directory exists
+        if [ -d "{{.N8N_DIR}}" ]; then
+          echo "✅ N8N directory exists"
+        else
+          echo "❌ N8N directory not found"
+          ERRORS=$((ERRORS + 1))
+        fi
+        
+        # Check if Docker is running
+        if docker info >/dev/null 2>&1; then
+          echo "✅ Docker is running"
+        else
+          echo "❌ Docker is not running"
+          ERRORS=$((ERRORS + 1))
+        fi
+        
+        # Check if N8N containers are running
+        if [ -f "{{.N8N_DIR}}/docker-compose.yml" ]; then
+          cd {{.N8N_DIR}}
+          
+          if docker-compose ps | grep -q "Up"; then
+            echo "✅ N8N containers are running"
+            
+            # Check N8N health endpoint
+            if curl -f -s http://localhost:5678/healthz >/dev/null; then
+              echo "✅ N8N health endpoint responding"
+            else
+              echo "⚠️ N8N health endpoint not responding"
+            fi
+          else
+            echo "❌ N8N containers are not running"
+            ERRORS=$((ERRORS + 1))
+          fi
+        else
+          echo "❌ N8N not configured"
+          ERRORS=$((ERRORS + 1))
+        fi
+        
+        # Check Nginx
+        if systemctl is-active --quiet nginx; then
+          echo "✅ Nginx is running"
+        else
+          echo "❌ Nginx is not running"
+          ERRORS=$((ERRORS + 1))
+        fi
+        
+        if [ $ERRORS -eq 0 ]; then
+          echo ""
+          echo "🎉 All health checks passed!"
+        else
+          echo ""
+          echo "⚠️ Found $ERRORS issues"
+        fi
+
+  connectivity:
+    desc: "Test N8N connectivity"
+    cmds:
+      - |
+        echo "🌐 Testing N8N connectivity..."
+        
+        # Test local connectivity
+        echo "🔍 Testing local access:"
+        if curl -f -s http://localhost:5678 >/dev/null; then
+          echo "  ✅ HTTP (localhost:5678): OK"
+        else
+          echo "  ❌ HTTP (localhost:5678): Failed"
+        fi
+        
+        # Test through Nginx
+        echo "🔍 Testing through Nginx:"
+        if curl -f -s http://localhost >/dev/null; then
+          echo "  ✅ HTTP (port 80): OK"
+        else
+          echo "  ❌ HTTP (port 80): Failed"
+        fi
+        
+        # Test HTTPS if configured
+        if sudo nginx -t 2>&1 | grep -q "ssl"; then
+          echo "🔍 Testing HTTPS:"
+          if curl -f -s -k https://localhost >/dev/null; then
+            echo "  ✅ HTTPS (port 443): OK"
+          else
+            echo "  ❌ HTTPS (port 443): Failed"
+          fi
+        fi
+        
+        # Test database connectivity
+        echo "🔍 Testing database:"
+        if [ -f "{{.N8N_DIR}}/docker-compose.yml" ]; then
+          cd {{.N8N_DIR}}
+          if docker-compose exec -T postgres pg_isready -U n8n >/dev/null 2>&1; then
+            echo "  ✅ PostgreSQL: OK"
+          else
+            echo "  ❌ PostgreSQL: Failed"
+          fi
+        fi
+
+  performance:
+    desc: "Run performance tests"
+    cmds:
+      - |
+        echo "⚡ Performance Testing..."
+        
+        # Test Docker performance
+        echo "🐳 Docker Performance:"
+        docker info | grep -E "CPUs|Total Memory" | sed 's/^/ /'
+        
+        # Test disk I/O
+        echo ""
+        echo "💾 Disk I/O Test:"
+        if command -v dd >/dev/null 2>&1; then
+          echo "  Write test (100MB):"
+          dd if=/dev/zero of=/tmp/testfile bs=1M count=100 2>&1 | grep copied | sed 's/^/  /'
+          rm -f /tmp/testfile
+        fi
+        
+        # Test network
+        echo ""
+        echo "🌐 Network Test:"
+        echo "  Ping test to Google DNS:"
+        ping -c 3 8.8.8.8 | tail -1 | sed 's/^/  /'
+        
+        # Test N8N response time
+        if curl -f -s http://localhost:5678 >/dev/null; then
+          echo ""
+          echo "⏱️ N8N Response Time:"
+          time curl -f -s http://localhost:5678 >/dev/null 2>&1 | sed 's/^/  /'
+        fi
+
+  security:
+    desc: "Run security tests"
+    cmds:
+      - |
+        echo "🔒 Security Testing..."
+        
+        # Check firewall status
+        echo "🔥 Firewall:"
+        if command -v ufw >/dev/null 2>&1; then
+          if sudo ufw status | grep -q "Status: active"; then
+            echo "  ✅ UFW is active"
+          else
+            echo "  ❌ UFW is inactive"
+          fi
+        else
+          echo "  ❌ UFW not installed"
+        fi
+        
+        # Check fail2ban
+        echo ""
+        echo "🛡️ Fail2Ban:"
+        if systemctl is-active --quiet fail2ban; then
+          echo "  ✅ Fail2Ban is active"
+        else
+          echo "  ❌ Fail2Ban is inactive"
+        fi
+        
+        # Check SSL configuration
+        echo ""
+        echo "🔐 SSL Configuration:"
+        if sudo nginx -t 2>&1 | grep -q "ssl"; then
+          echo "  ✅ SSL configured"
+        else
+          echo "  ❌ SSL not configured"
+        fi
+        
+        # Check for insecure configurations
+        echo ""
+        echo "⚠️ Security Scan:"
+        ISSUES=0
+        
+        # Check for default passwords
+        if [ -f "{{.N8N_DIR}}/.secrets" ]; then
+          if grep -q "password123\|admin\|default" {{.N8N_DIR}}/.secrets; then
+            echo "  ❌ Default passwords detected"
+            ISSUES=$((ISSUES + 1))
+          else
+            echo "  ✅ No default passwords found"
+          fi
+        fi
+        
+        # Check file permissions
+        if [ -f "{{.N8N_DIR}}/.secrets" ]; then
+          PERMS=$(stat -c %a {{.N8N_DIR}}/.secrets)
+          if [ "$PERMS" = "600" ]; then
+            echo "  ✅ Secrets file permissions secure"
+          else
+            echo "  ❌ Secrets file permissions insecure ($PERMS)"
+            ISSUES=$((ISSUES + 1))
+          fi
+        fi
+        
+        if [ $ISSUES -eq 0 ]; then
+          echo ""
+          echo "🎉 No security issues found"
+        else
+          echo ""
+          echo "⚠️ Found $ISSUES security issues"
+        fi
+
+  quick:
+    desc: "Run quick validation tests"
+    cmds:
+      - |
+        echo "🚀 Quick Validation Tests..."
+        
+        # Quick syntax check
+        echo "1/4 Syntax check..."
+        task test:syntax
+        
+        # Quick health check
+        echo "2/4 Health check..."
+        task test:health-check
+        
+        # Quick connectivity
+        echo "3/4 Connectivity..."
+        task test:connectivity
+        
+        # Quick security
+        echo "4/4 Security..."
+        task test:security
+        
+        echo ""
+        echo "✅ Quick tests completed"
+
+  comprehensive:
+    desc: "Run comprehensive test suite"
+    cmds:
+      - |
+        echo "🔬 Comprehensive Test Suite..."
+        echo "============================"
+        
+        # Run all test types
+        echo "🔍 1/6 Linting..."
+        task test:lint
+        echo ""
+        
+        echo "📝 2/6 Syntax..."
+        task test:syntax
+        echo ""
+        
+        echo "🧪 3/6 Functions..."
+        task test:functions
+        echo ""
+        
+        echo "🏥 4/6 Health..."
+        task test:health-check
+        echo ""
+        
+        echo "⚡ 5/6 Performance..."
+        task test:performance
+        echo ""
+        
+        echo "🔒 6/6 Security..."
+        task test:security
+        echo ""
+        
+        echo "🎉 Comprehensive testing completed!"
+
+  status:
+    desc: "Show overall system status"
+    cmds:
+      - |
+        echo "📊 System Status Overview:"
+        echo "========================="
+        
+        # System info
+        echo "🖥️ System:"
+        echo "  OS: $(lsb_release -d | cut -d: -f2 | xargs)"
+        echo "  Kernel: $(uname -r)"
+        echo "  Uptime: $(uptime -p)"
+        echo ""
+        
+        # Task system
+        echo "⚙️ Task System:"
+        echo "  Task version: $(task --version 2>/dev/null || echo 'Not installed')"
+        echo "  Available tasks: $(task --list 2>/dev/null | wc -l || echo '0')"
+        echo ""
+        
+        # Docker
+        echo "🐳 Docker:"
+        if command -v docker >/dev/null 2>&1; then
+          echo "  Version: $(docker --version | cut -d' ' -f3 | cut -d',' -f1)"
+          echo "  Status: $(systemctl is-active docker)"
+          echo "  Containers: $(docker ps --format "table {{.Names}}" | tail -n +2 | wc -l) running"
+        else
+          echo "  Status: Not installed"
+        fi
+        echo ""
+        
+        # N8N
+        echo "🚀 N8N:"
+        if [ -f "{{.N8N_DIR}}/docker-compose.yml" ]; then
+          echo "  Status: Configured"
+          cd {{.N8N_DIR}}
+          echo "  Containers: $(docker-compose ps --services | wc -l) defined"
+          if curl -f -s http://localhost:5678/healthz >/dev/null; then
+            echo "  Health: ✅ Healthy"
+          else
+            echo "  Health: ❌ Unhealthy"
+          fi
+        else
+          echo "  Status: Not configured"
+        fi

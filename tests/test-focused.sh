@@ -131,7 +131,7 @@ test_help_commands() {
     fi
     
     # Test version
-    if multipass exec "$vm_name" -- bash -c "./install.sh --version | grep -q 'v1.3.0'"; then
+    if multipass exec "$vm_name" -- bash -c "./install.sh --version | grep -q 'v1.3.1'"; then
         log "SUCCESS" "Version command works"
     else
         log "ERROR" "Version command failed"

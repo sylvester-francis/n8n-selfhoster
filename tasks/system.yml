@@ -1,0 +1,158 @@
+# System management tasks
+version: '3'
+
+vars:
+  MIN_RAM_GB: 2
+  MIN_DISK_GB: 10
+  MIN_UBUNTU_VERSION: "20.04"
+
+tasks:
+  check-requirements:
+    desc: "Check system requirements"
+    cmds:
+      - |
+        echo "🔍 Checking system requirements..."
+        
+        # Check if running as root
+        if [[ $EUID -ne 0 ]]; then
+          echo "❌ This installer must be run as root (use sudo)"
+          exit 1
+        fi
+        
+        # Check Ubuntu version
+        if ! command -v lsb_release >/dev/null 2>&1; then
+          echo "❌ lsb_release not found. Are you running Ubuntu?"
+          exit 1
+        fi
+        
+        UBUNTU_VERSION=$(lsb_release -rs)
+        if (( $(echo "$UBUNTU_VERSION < {{.MIN_UBUNTU_VERSION}}" | bc -l) )); then
+          echo "❌ Ubuntu $UBUNTU_VERSION detected. Minimum required: {{.MIN_UBUNTU_VERSION}}"
+          exit 1
+        fi
+        
+        # Check memory
+        TOTAL_RAM_GB=$(free -g | awk 'NR==2{print $2}')
+        if [[ $TOTAL_RAM_GB -lt {{.MIN_RAM_GB}} ]]; then
+          echo "❌ Insufficient RAM: ${TOTAL_RAM_GB}GB (minimum {{.MIN_RAM_GB}}GB required)"
+          exit 1
+        fi
+        
+        # Check disk space
+        AVAILABLE_DISK_GB=$(df / | awk 'NR==2{print int($4/1024/1024)}')
+        if [[ $AVAILABLE_DISK_GB -lt {{.MIN_DISK_GB}} ]]; then
+          echo "❌ Insufficient disk space: ${AVAILABLE_DISK_GB}GB (minimum {{.MIN_DISK_GB}}GB required)"
+          exit 1
+        fi
+        
+        # Check internet connectivity
+        if ! curl -s --connect-timeout 10 https://google.com >/dev/null; then
+          echo "❌ No internet connectivity"
+          exit 1
+        fi
+        
+        echo "✅ All system requirements met"
+        echo "  Ubuntu: $UBUNTU_VERSION"
+        echo "  RAM: ${TOTAL_RAM_GB}GB"
+        echo "  Disk: ${AVAILABLE_DISK_GB}GB available"
+
+  update:
+    desc: "Update system packages"
+    cmds:
+      - |
+        echo "📦 Updating system packages..."
+        export DEBIAN_FRONTEND=noninteractive
+        
+        # Update package lists
+        apt-get update -qq
+        
+        # Install essential packages
+        apt-get install -y -qq \
+          curl \
+          wget \
+          git \
+          lsb-release \
+          ca-certificates \
+          gnupg \
+          software-properties-common
+        
+        echo "✅ System packages updated"
+
+  install-dependencies:
+    desc: "Install system dependencies"
+    deps: [update]
+    cmds:
+      - |
+        echo "📦 Installing system dependencies..."
+        apt-get install -y -qq \
+          htop \
+          net-tools \
+          ufw \
+          fail2ban \
+          openssl \
+          bc
+        echo "✅ Dependencies installed"
+
+  optimize-performance:
+    desc: "Apply system performance optimizations"
+    cmds:
+      - |
+        echo "⚡ Applying system performance optimizations..."
+        
+        # Create sysctl configuration
+        cat > /etc/sysctl.d/99-n8n-performance.conf << 'EOF'
+        # Network optimizations
+        net.core.rmem_max = 16777216
+        net.core.wmem_max = 16777216
+        net.ipv4.tcp_congestion_control = bbr
+        
+        # Memory optimizations  
+        vm.swappiness = 10
+        vm.dirty_ratio = 15
+        vm.dirty_background_ratio = 5
+        
+        # File system optimizations
+        fs.file-max = 2097152
+        fs.inotify.max_user_watches = 524288
+        EOF
+        
+        # Apply settings
+        sysctl -p /etc/sysctl.d/99-n8n-performance.conf
+        
+        echo "✅ Performance optimizations applied"
+
+  uninstall:
+    desc: "Uninstall N8N completely"
+    interactive: true
+    cmds:
+      - |
+        echo "⚠️  This will completely remove N8N and all data!"
+        read -p "Are you sure you want to continue? (type 'yes' to confirm): " confirm
+        
+        if [[ "$confirm" != "yes" ]]; then
+          echo "Uninstall cancelled"
+          exit 0
+        fi
+        
+        echo "🗑️ Uninstalling N8N..."
+        
+        # Stop services
+        systemctl stop nginx 2>/dev/null || true
+        
+        # Remove Docker containers and images
+        if command -v docker >/dev/null 2>&1; then
+          cd /opt/n8n 2>/dev/null && docker-compose down -v 2>/dev/null || true
+          docker system prune -af 2>/dev/null || true
+        fi
+        
+        # Remove directories
+        rm -rf /opt/n8n
+        rm -rf /etc/nginx/sites-available/n8n
+        rm -rf /etc/nginx/sites-enabled/n8n
+        rm -f /etc/ssl/certs/n8n*
+        rm -f /etc/ssl/private/n8n*
+        
+        # Remove system configurations
+        rm -f /etc/sysctl.d/99-n8n*.conf
+        
+        echo "✅ N8N uninstalled successfully"

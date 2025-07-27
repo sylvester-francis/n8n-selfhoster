@@ -1,0 +1,339 @@
+# Security configuration tasks
+version: '3'
+
+tasks:
+  configure:
+    desc: "Configure system security"
+    cmds:
+      - |
+        echo "🔒 Configuring system security..."
+        
+        # Check if security should be skipped
+        source .env 2>/dev/null || true
+        if [[ "${SKIP_FIREWALL:-false}" == "true" ]]; then
+          echo "⏭️ Firewall configuration skipped"
+        else
+          task security:firewall
+        fi
+        
+        # Configure fail2ban
+        task security:fail2ban
+        
+        # Secure SSH if running
+        task security:ssh
+        
+        echo "✅ Security configuration completed"
+
+  firewall:
+    desc: "Configure UFW firewall"
+    cmds:
+      - |
+        echo "🔥 Configuring UFW firewall..."
+        
+        # Install UFW if not present
+        if ! command -v ufw >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo apt-get install -y ufw
+        fi
+        
+        # Reset UFW to defaults
+        sudo ufw --force reset
+        
+        # Set default policies
+        sudo ufw default deny incoming
+        sudo ufw default allow outgoing
+        
+        # Allow SSH (be careful not to lock ourselves out)
+        sudo ufw allow ssh
+        sudo ufw allow 22/tcp
+        
+        # Allow HTTP and HTTPS
+        sudo ufw allow 80/tcp
+        sudo ufw allow 443/tcp
+        
+        # Allow N8N port (only from localhost by default)
+        sudo ufw allow from 127.0.0.1 to any port 5678
+        
+        # Enable UFW
+        sudo ufw --force enable
+        
+        # Show status
+        sudo ufw status verbose
+        
+        echo "✅ Firewall configured"
+
+  fail2ban:
+    desc: "Configure Fail2Ban"
+    cmds:
+      - |
+        echo "🛡️ Configuring Fail2Ban..."
+        
+        # Install fail2ban
+        sudo apt-get update -qq
+        sudo apt-get install -y fail2ban
+        
+        # Create custom jail configuration
+        sudo tee /etc/fail2ban/jail.local > /dev/null << 'EOF'
+        [DEFAULT]
+        # Ban time (10 minutes)
+        bantime = 600
+        
+        # Find time window (10 minutes)
+        findtime = 600
+        
+        # Max retry attempts
+        maxretry = 5
+        
+        # Ignore localhost
+        ignoreip = 127.0.0.1/8 ::1
+        
+        [sshd]
+        enabled = true
+        port = ssh
+        filter = sshd
+        logpath = /var/log/auth.log
+        maxretry = 3
+        bantime = 3600
+        
+        [nginx-http-auth]
+        enabled = true
+        filter = nginx-http-auth
+        port = http,https
+        logpath = /var/log/nginx/error.log
+        maxretry = 3
+        
+        [nginx-noscript]
+        enabled = true
+        port = http,https
+        filter = nginx-noscript
+        logpath = /var/log/nginx/access.log
+        maxretry = 6
+        
+        [nginx-badbots]
+        enabled = true
+        port = http,https
+        filter = nginx-badbots
+        logpath = /var/log/nginx/access.log
+        maxretry = 2
+        
+        [nginx-noproxy]
+        enabled = true
+        port = http,https
+        filter = nginx-noproxy
+        logpath = /var/log/nginx/access.log
+        maxretry = 2
+        EOF
+        
+        # Create custom filter for N8N
+        sudo tee /etc/fail2ban/filter.d/n8n.conf > /dev/null << 'EOF'
+        [Definition]
+        failregex = ^<HOST>.*"(GET|POST).*" (4[0-9]{2}|5[0-9]{2})
+        ignoreregex =
+        EOF
+        
+        # Add N8N jail
+        sudo tee -a /etc/fail2ban/jail.local > /dev/null << 'EOF'
+        
+        [n8n]
+        enabled = true
+        port = http,https
+        filter = n8n
+        logpath = /var/log/nginx/access.log
+        maxretry = 10
+        bantime = 600
+        EOF
+        
+        # Start and enable fail2ban
+        sudo systemctl start fail2ban
+        sudo systemctl enable fail2ban
+        
+        echo "✅ Fail2Ban configured"
+
+  ssh:
+    desc: "Secure SSH configuration"
+    cmds:
+      - |
+        echo "🔐 Securing SSH configuration..."
+        
+        # Check if SSH is running
+        if ! systemctl is-active --quiet ssh && ! systemctl is-active --quiet sshd; then
+          echo "ℹ️ SSH service not running, skipping SSH hardening"
+          exit 0
+        fi
+        
+        # Backup original SSH config
+        sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+        
+        # Create secure SSH configuration
+        sudo tee /etc/ssh/sshd_config.d/99-security.conf > /dev/null << 'EOF'
+        # Security hardening for SSH
+        
+        # Disable root login
+        PermitRootLogin no
+        
+        # Disable password authentication (comment out if you need it)
+        # PasswordAuthentication no
+        
+        # Disable empty passwords
+        PermitEmptyPasswords no
+        
+        # Limit authentication attempts
+        MaxAuthTries 3
+        
+        # Disable X11 forwarding
+        X11Forwarding no
+        
+        # Disable TCP forwarding
+        AllowTcpForwarding no
+        
+        # Use only SSH protocol 2
+        Protocol 2
+        
+        # Log verbosity
+        LogLevel VERBOSE
+        
+        # Client alive settings (prevent hanging sessions)
+        ClientAliveInterval 300
+        ClientAliveCountMax 2
+        
+        # Disable unused features
+        AllowAgentForwarding no
+        AllowStreamLocalForwarding no
+        GatewayPorts no
+        
+        # Strong ciphers only
+        Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+        EOF
+        
+        # Test SSH configuration
+        if sudo sshd -t; then
+          # Restart SSH service
+          sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd 2>/dev/null
+          echo "✅ SSH secured"
+        else
+          echo "❌ SSH configuration test failed, reverting changes"
+          sudo rm /etc/ssh/sshd_config.d/99-security.conf
+          exit 1
+        fi
+
+  audit:
+    desc: "Run security audit"
+    cmds:
+      - |
+        echo "🔍 Running security audit..."
+        
+        echo "🔥 Firewall Status:"
+        sudo ufw status verbose
+        echo ""
+        
+        echo "🛡️ Fail2Ban Status:"
+        sudo fail2ban-client status
+        echo ""
+        
+        echo "🔐 SSH Security:"
+        if systemctl is-active --quiet ssh || systemctl is-active --quiet sshd; then
+          echo "  SSH Service: Active"
+          echo "  Root Login: $(sudo sshd -T | grep permitrootlogin | awk '{print $2}')"
+          echo "  Password Auth: $(sudo sshd -T | grep passwordauthentication | awk '{print $2}')"
+        else
+          echo "  SSH Service: Inactive"
+        fi
+        echo ""
+        
+        echo "🌐 Network Services:"
+        sudo netstat -tlnp | grep -E ':(22|80|443|5678) '
+        echo ""
+        
+        echo "📊 Security Score:"
+        SCORE=0
+        
+        # Check firewall
+        if sudo ufw status | grep -q "Status: active"; then
+          SCORE=$((SCORE + 25))
+          echo "  ✅ Firewall active (+25)"
+        else
+          echo "  ❌ Firewall inactive (0)"
+        fi
+        
+        # Check fail2ban
+        if systemctl is-active --quiet fail2ban; then
+          SCORE=$((SCORE + 25))
+          echo "  ✅ Fail2Ban active (+25)"
+        else
+          echo "  ❌ Fail2Ban inactive (0)"
+        fi
+        
+        # Check SSH hardening
+        if [ -f "/etc/ssh/sshd_config.d/99-security.conf" ]; then
+          SCORE=$((SCORE + 25))
+          echo "  ✅ SSH hardened (+25)"
+        else
+          echo "  ❌ SSH not hardened (0)"
+        fi
+        
+        # Check SSL/TLS
+        if sudo nginx -t 2>&1 | grep -q "ssl"; then
+          SCORE=$((SCORE + 25))
+          echo "  ✅ SSL/TLS configured (+25)"
+        else
+          echo "  ❌ SSL/TLS not configured (0)"
+        fi
+        
+        echo ""
+        echo "🎯 Overall Security Score: $SCORE/100"
+        
+        if [ $SCORE -lt 75 ]; then
+          echo "⚠️ Security score below recommended threshold"
+        else
+          echo "✅ Good security posture"
+        fi
+
+  status:
+    desc: "Show security status"
+    cmds:
+      - |
+        echo "🔍 Security Status Overview:"
+        echo "=========================="
+        
+        echo "🔥 Firewall (UFW):"
+        if command -v ufw >/dev/null 2>&1; then
+          sudo ufw status | head -5
+        else
+          echo "  Not installed"
+        fi
+        echo ""
+        
+        echo "🛡️ Fail2Ban:"
+        if command -v fail2ban-client >/dev/null 2>&1; then
+          echo "  Service: $(systemctl is-active fail2ban)"
+          sudo fail2ban-client status | head -3
+        else
+          echo "  Not installed"
+        fi
+        echo ""
+        
+        echo "🔐 SSH:"
+        if systemctl is-active --quiet ssh || systemctl is-active --quiet sshd; then
+          echo "  Service: Active"
+          echo "  Hardening: $([ -f "/etc/ssh/sshd_config.d/99-security.conf" ] && echo "Enabled" || echo "Disabled")"
+        else
+          echo "  Service: Inactive"
+        fi
+
+  logs:
+    desc: "Show security-related logs"
+    cmds:
+      - |
+        echo "📋 Security Logs:"
+        echo "================"
+        
+        echo "🛡️ Fail2Ban Activity (last 20 lines):"
+        sudo tail -n 20 /var/log/fail2ban.log 2>/dev/null || echo "  No fail2ban logs found"
+        echo ""
+        
+        echo "🔐 Authentication Failures (last 10):"
+        sudo tail -n 50 /var/log/auth.log | grep "Failed password" | tail -10 2>/dev/null || echo "  No auth failures found"
+        echo ""
+        
+        echo "🔥 UFW Activity (last 10):"
+        sudo tail -n 50 /var/log/ufw.log | tail -10 2>/dev/null || echo "  No UFW logs found"

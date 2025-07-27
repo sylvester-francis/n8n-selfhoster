@@ -1,0 +1,379 @@
+# Proxmox-specific optimization tasks
+version: '3'
+
+tasks:
+  detect:
+    desc: "Detect if running in Proxmox environment"
+    cmds:
+      - |
+        echo "🔍 Detecting Proxmox environment..."
+        
+        PROXMOX_DETECTED=false
+        
+        # Check for Proxmox indicators
+        if grep -q "pve" /proc/version 2>/dev/null; then
+          echo "✅ Proxmox kernel detected"
+          PROXMOX_DETECTED=true
+        fi
+        
+        if [ -f "/etc/pve/local/qemu-server" ] 2>/dev/null; then
+          echo "✅ Proxmox VM configuration directory found"
+          PROXMOX_DETECTED=true
+        fi
+        
+        if systemd-detect-virt | grep -q "kvm\|qemu"; then
+          if dmesg | grep -q "QEMU\|KVM"; then
+            echo "✅ QEMU/KVM virtualization detected"
+            PROXMOX_DETECTED=true
+          fi
+        fi
+        
+        # Check for Proxmox guest agent
+        if systemctl list-units | grep -q "qemu-guest-agent"; then
+          echo "✅ QEMU guest agent detected"
+          PROXMOX_DETECTED=true
+        fi
+        
+        # Check DMI information
+        if dmidecode -s system-product-name 2>/dev/null | grep -q "QEMU\|KVM"; then
+          echo "✅ QEMU/KVM hardware signature detected"
+          PROXMOX_DETECTED=true
+        fi
+        
+        if [ "$PROXMOX_DETECTED" = true ]; then
+          echo "🎯 Proxmox VM environment confirmed"
+          exit 0
+        else
+          echo "❌ Proxmox environment not detected"
+          exit 1
+        fi
+
+  optimize:
+    desc: "Apply Proxmox-specific optimizations"
+    deps: [detect]
+    cmds:
+      - |
+        echo "⚡ Applying Proxmox optimizations..."
+        
+        # Install QEMU guest agent if not present
+        task proxmox:install-guest-agent
+        
+        # Configure VM-specific optimizations
+        task proxmox:configure-vm
+        
+        # Apply performance tweaks
+        task proxmox:performance-tweaks
+        
+        # Configure monitoring
+        task proxmox:monitoring
+        
+        echo "✅ Proxmox optimizations completed"
+
+  install-guest-agent:
+    desc: "Install QEMU guest agent"
+    cmds:
+      - |
+        echo "👤 Installing QEMU guest agent..."
+        
+        if ! command -v qemu-ga >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-guest-agent
+        fi
+        
+        # Start and enable the service
+        sudo systemctl start qemu-guest-agent
+        sudo systemctl enable qemu-guest-agent
+        
+        echo "✅ QEMU guest agent installed and started"
+
+  configure-vm:
+    desc: "Configure VM-specific settings"
+    cmds:
+      - |
+        echo "⚙️ Configuring VM-specific settings..."
+        
+        # Configure fstrim for SSD optimization
+        if command -v fstrim >/dev/null 2>&1; then
+          echo "💽 Enabling periodic fstrim..."
+          sudo systemctl enable fstrim.timer
+          sudo systemctl start fstrim.timer
+        fi
+        
+        # Configure VM-specific sysctls
+        sudo tee /etc/sysctl.d/99-proxmox-vm.conf > /dev/null << 'EOF'
+        # Proxmox VM optimizations
+        
+        # Virtual memory settings for VMs
+        vm.swappiness = 1
+        vm.vfs_cache_pressure = 50
+        vm.dirty_background_ratio = 5
+        vm.dirty_ratio = 10
+        
+        # Network optimizations for VMs
+        net.core.rmem_default = 262144
+        net.core.rmem_max = 16777216
+        net.core.wmem_default = 262144
+        net.core.wmem_max = 16777216
+        net.ipv4.tcp_rmem = 4096 65536 16777216
+        net.ipv4.tcp_wmem = 4096 65536 16777216
+        
+        # Reduce context switching
+        kernel.sched_migration_cost_ns = 5000000
+        
+        # Optimize for virtualized environment
+        vm.zone_reclaim_mode = 0
+        EOF
+        
+        # Apply settings
+        sudo sysctl -p /etc/sysctl.d/99-proxmox-vm.conf
+        
+        echo "✅ VM configuration applied"
+
+  performance-tweaks:
+    desc: "Apply Proxmox-specific performance tweaks"
+    cmds:
+      - |
+        echo "🚀 Applying Proxmox performance tweaks..."
+        
+        # Configure CPU governor for VM environment
+        if [ -f "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor" ]; then
+          echo "⚡ Setting CPU governor to performance..."
+          echo 'performance' | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
+          
+          # Make it persistent
+          sudo tee /etc/systemd/system/cpufreq-performance.service > /dev/null << 'EOF'
+        [Unit]
+        Description=Set CPU governor to performance
+        After=multi-user.target
+        
+        [Service]
+        Type=oneshot
+        ExecStart=/bin/bash -c 'echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+        RemainAfterExit=yes
+        
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+          
+          sudo systemctl enable cpufreq-performance.service
+        fi
+        
+        # Optimize I/O scheduler for VM environment
+        echo "💾 Optimizing I/O scheduler..."
+        for disk in /sys/block/sd* /sys/block/vd*; do
+          if [ -d "$disk" ]; then
+            disk_name=$(basename "$disk")
+            echo "deadline" | sudo tee "$disk/queue/scheduler" >/dev/null 2>&1 || true
+            echo "  Set deadline scheduler for $disk_name"
+          fi
+        done
+        
+        # Create service to make I/O scheduler persistent
+        sudo tee /etc/systemd/system/io-scheduler-vm.service > /dev/null << 'EOF'
+        [Unit]
+        Description=Set I/O scheduler for VM
+        After=multi-user.target
+        
+        [Service]
+        Type=oneshot
+        ExecStart=/bin/bash -c 'for disk in /sys/block/sd* /sys/block/vd*; do [ -d "$disk" ] && echo deadline > "$disk/queue/scheduler" 2>/dev/null || true; done'
+        RemainAfterExit=yes
+        
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+        
+        sudo systemctl enable io-scheduler-vm.service
+        
+        # Configure transparent hugepages for VM
+        echo "🧠 Configuring transparent hugepages..."
+        echo 'madvise' | sudo tee /sys/kernel/mm/transparent_hugepage/enabled >/dev/null
+        
+        echo "✅ Performance tweaks applied"
+
+  monitoring:
+    desc: "Configure Proxmox VM monitoring"
+    cmds:
+      - |
+        echo "📊 Configuring VM monitoring..."
+        
+        # Create VM monitoring script
+        sudo tee /usr/local/bin/vm-monitor.sh > /dev/null << 'EOF'
+        #!/bin/bash
+        
+        # VM Resource Monitoring Script
+        
+        echo "=== Proxmox VM Resource Monitor ==="
+        echo "Timestamp: $(date)"
+        echo ""
+        
+        # CPU Usage
+        echo "CPU Usage:"
+        top -bn1 | grep "Cpu(s)" | awk '{print "  "$0}'
+        echo ""
+        
+        # Memory Usage
+        echo "Memory Usage:"
+        free -h | awk 'NR==2{printf "  Used: %s/%s (%.2f%%)\n", $3,$2,$3*100/$2 }'
+        echo ""
+        
+        # Disk Usage
+        echo "Disk Usage:"
+        df -h / | awk 'NR==2{printf "  Root: %s/%s (%s)\n", $3,$2,$5}'
+        echo ""
+        
+        # Network Stats (basic)
+        echo "Network Activity:"
+        cat /proc/net/dev | grep -E 'eth|ens|enp' | head -1 | awk '{printf "  Interface: RX bytes: %s, TX bytes: %s\n", $2, $10}'
+        echo ""
+        
+        # VM-specific checks
+        echo "VM Status:"
+        if systemctl is-active --quiet qemu-guest-agent; then
+          echo "  QEMU Agent: Active"
+        else
+          echo "  QEMU Agent: Inactive"
+        fi
+        
+        if command -v qemu-ga >/dev/null 2>&1; then
+          echo "  Guest Agent: Installed"
+        else
+          echo "  Guest Agent: Not installed"
+        fi
+        
+        echo ""
+        echo "=========================="
+        EOF
+        
+        sudo chmod +x /usr/local/bin/vm-monitor.sh
+        
+        # Create systemd service for monitoring
+        sudo tee /etc/systemd/system/vm-monitor.service > /dev/null << 'EOF'
+        [Unit]
+        Description=VM Resource Monitor
+        
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/bin/vm-monitor.sh
+        EOF
+        
+        # Create timer for periodic monitoring (every 5 minutes)
+        sudo tee /etc/systemd/system/vm-monitor.timer > /dev/null << 'EOF'
+        [Unit]
+        Description=Run VM Monitor every 5 minutes
+        Requires=vm-monitor.service
+        
+        [Timer]
+        OnCalendar=*:0/5
+        Persistent=true
+        
+        [Install]
+        WantedBy=timers.target
+        EOF
+        
+        # Enable and start the timer
+        sudo systemctl daemon-reload
+        sudo systemctl enable vm-monitor.timer
+        sudo systemctl start vm-monitor.timer
+        
+        echo "✅ VM monitoring configured"
+
+  status:
+    desc: "Show Proxmox VM status"
+    cmds:
+      - |
+        echo "🔍 Proxmox VM Status:"
+        echo "===================="
+        
+        # Basic VM info
+        echo "🖥️ VM Information:"
+        echo "  Virtualization: $(systemd-detect-virt)"
+        echo "  Kernel: $(uname -r)"
+        echo "  Architecture: $(uname -m)"
+        echo ""
+        
+        # QEMU Guest Agent
+        echo "👤 QEMU Guest Agent:"
+        if systemctl is-active --quiet qemu-guest-agent; then
+          echo "  Status: Active"
+          echo "  Version: $(qemu-ga --version 2>/dev/null | head -1 || echo 'Unknown')"
+        else
+          echo "  Status: Inactive/Not installed"
+        fi
+        echo ""
+        
+        # Resource utilization
+        echo "📊 Resource Utilization:"
+        echo "  CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)% used"
+        echo "  Memory: $(free | awk 'NR==2{printf "%.1f%%", $3*100/$2 }')"
+        echo "  Disk: $(df / | awk 'NR==2{print $5}')"
+        echo ""
+        
+        # VM-specific optimizations status
+        echo "⚡ Optimizations Status:"
+        if [ -f "/etc/sysctl.d/99-proxmox-vm.conf" ]; then
+          echo "  VM sysctls: Configured"
+        else
+          echo "  VM sysctls: Not configured"
+        fi
+        
+        if systemctl is-enabled --quiet fstrim.timer 2>/dev/null; then
+          echo "  fstrim: Enabled"
+        else
+          echo "  fstrim: Disabled"
+        fi
+        
+        if systemctl is-enabled --quiet vm-monitor.timer 2>/dev/null; then
+          echo "  VM monitoring: Enabled"
+        else
+          echo "  VM monitoring: Disabled"
+        fi
+
+  logs:
+    desc: "Show Proxmox-related logs"
+    cmds:
+      - |
+        echo "📋 Proxmox VM Logs:"
+        echo "=================="
+        
+        echo "👤 QEMU Guest Agent Logs:"
+        journalctl -u qemu-guest-agent --no-pager -n 10
+        echo ""
+        
+        echo "📊 VM Monitor Logs:"
+        journalctl -u vm-monitor.service --no-pager -n 5
+        echo ""
+        
+        echo "🔧 Kernel Messages (VM-related):"
+        dmesg | grep -i -E "kvm|qemu|virtio" | tail -5
+
+  reset-optimizations:
+    desc: "Reset Proxmox optimizations"
+    interactive: true
+    cmds:
+      - |
+        echo "⚠️ This will reset all Proxmox-specific optimizations!"
+        read -p "Type 'RESET' to confirm: " confirm
+        
+        if [[ "$confirm" != "RESET" ]]; then
+          echo "Reset cancelled"
+          exit 0
+        fi
+        
+        echo "🔄 Resetting Proxmox optimizations..."
+        
+        # Remove custom sysctls
+        sudo rm -f /etc/sysctl.d/99-proxmox-vm.conf
+        
+        # Remove custom services
+        sudo systemctl stop vm-monitor.timer vm-monitor.service 2>/dev/null || true
+        sudo systemctl disable vm-monitor.timer vm-monitor.service 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/vm-monitor.*
+        sudo rm -f /etc/systemd/system/cpufreq-performance.service
+        sudo rm -f /etc/systemd/system/io-scheduler-vm.service
+        sudo rm -f /usr/local/bin/vm-monitor.sh
+        
+        # Reload systemd
+        sudo systemctl daemon-reload
+        
+        echo "✅ Proxmox optimizations reset"

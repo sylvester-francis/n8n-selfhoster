@@ -1,0 +1,278 @@
+# N8N setup and management tasks
+version: '3'
+
+vars:
+  N8N_VERSION: "latest"
+  POSTGRES_VERSION: "13"
+
+tasks:
+  setup:
+    desc: "Setup N8N with PostgreSQL"
+    deps: [create-directories, generate-secrets]
+    cmds:
+      - |
+        echo "🚀 Setting up N8N..."
+        
+        # Load environment variables
+        source .env 2>/dev/null || true
+        
+        # Generate database password if not exists
+        if [ ! -f "{{.N8N_DIR}}/.secrets" ]; then
+          echo "🔐 Generating database secrets..."
+          POSTGRES_PASSWORD=$(openssl rand -base64 32)
+          N8N_ENCRYPTION_KEY=$(openssl rand -base64 32)
+          echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" > {{.N8N_DIR}}/.secrets
+          echo "N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY" >> {{.N8N_DIR}}/.secrets
+          chmod 600 {{.N8N_DIR}}/.secrets
+        fi
+        
+        # Source secrets
+        source {{.N8N_DIR}}/.secrets
+        
+        # Create docker-compose.yml
+        cat > {{.N8N_DIR}}/docker-compose.yml << EOF
+        version: '3.8'
+        
+        services:
+          postgres:
+            image: postgres:{{.POSTGRES_VERSION}}
+            container_name: n8n_postgres
+            restart: unless-stopped
+            environment:
+              POSTGRES_USER: n8n
+              POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
+              POSTGRES_DB: n8n
+            volumes:
+              - postgres_data:/var/lib/postgresql/data
+            networks:
+              - n8n_network
+            healthcheck:
+              test: ["CMD-SHELL", "pg_isready -U n8n"]
+              interval: 30s
+              timeout: 10s
+              retries: 5
+        
+          n8n:
+            image: n8nio/n8n:{{.N8N_VERSION}}
+            container_name: n8n_app
+            restart: unless-stopped
+            environment:
+              # Database
+              DB_TYPE: postgresdb
+              DB_POSTGRESDB_HOST: postgres
+              DB_POSTGRESDB_PORT: 5432
+              DB_POSTGRESDB_DATABASE: n8n
+              DB_POSTGRESDB_USER: n8n
+              DB_POSTGRESDB_PASSWORD: \${POSTGRES_PASSWORD}
+              
+              # N8N Configuration
+              N8N_BASIC_AUTH_ACTIVE: false
+              N8N_HOST: 0.0.0.0
+              N8N_PORT: 5678
+              N8N_PROTOCOL: ${DETECTED_ENV:-http}
+              WEBHOOK_URL: ${DOMAIN_NAME:-${SERVER_IP:-localhost}}
+              N8N_ENCRYPTION_KEY: \${N8N_ENCRYPTION_KEY}
+              
+              # Performance
+              EXECUTIONS_DATA_PRUNE: true
+              EXECUTIONS_DATA_MAX_AGE: 168
+              N8N_LOG_LEVEL: info
+              
+              # Security
+              N8N_SECURE_COOKIE: false
+              N8N_METRICS: true
+            ports:
+              - "5678:5678"
+            volumes:
+              - n8n_data:/home/node/.n8n
+              - /var/run/docker.sock:/var/run/docker.sock:ro
+            networks:
+              - n8n_network
+            depends_on:
+              postgres:
+                condition: service_healthy
+            healthcheck:
+              test: ["CMD-SHELL", "curl -f http://localhost:5678/healthz || exit 1"]
+              interval: 30s
+              timeout: 10s
+              retries: 5
+        
+        volumes:
+          postgres_data:
+            name: n8n_postgres_data
+          n8n_data:
+            name: n8n_data
+        
+        networks:
+          n8n_network:
+            name: n8n_network
+            driver: bridge
+        EOF
+        
+        echo "✅ N8N configuration created"
+
+  create-directories:
+    desc: "Create N8N directories"
+    cmds:
+      - |
+        echo "📁 Creating N8N directories..."
+        sudo mkdir -p {{.N8N_DIR}}
+        sudo mkdir -p {{.BACKUP_DIR}}
+        sudo chown -R $USER:$USER {{.N8N_DIR}}
+        echo "✅ Directories created"
+
+  generate-secrets:
+    desc: "Generate N8N secrets"
+    cmds:
+      - |
+        if [ ! -f "{{.N8N_DIR}}/.secrets" ]; then
+          echo "🔐 Generating N8N secrets..."
+          POSTGRES_PASSWORD=$(openssl rand -base64 32)
+          N8N_ENCRYPTION_KEY=$(openssl rand -base64 32)
+          echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" > {{.N8N_DIR}}/.secrets
+          echo "N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY" >> {{.N8N_DIR}}/.secrets
+          chmod 600 {{.N8N_DIR}}/.secrets
+          echo "✅ Secrets generated"
+        else
+          echo "✅ Secrets already exist"
+        fi
+
+  start:
+    desc: "Start N8N services"
+    deps: [setup]
+    cmds:
+      - |
+        echo "🚀 Starting N8N services..."
+        cd {{.N8N_DIR}}
+        
+        # Load secrets
+        export $(grep -v '^#' .secrets | xargs)
+        
+        # Start services
+        docker-compose up -d
+        
+        # Wait for services to be healthy
+        echo "⏳ Waiting for services to start..."
+        for i in {1..30}; do
+          if docker-compose ps | grep -q "Up (healthy)"; then
+            echo "✅ N8N services started successfully"
+            break
+          fi
+          sleep 10
+          echo "  Attempt $i/30..."
+        done
+        
+        # Show status
+        docker-compose ps
+
+  stop:
+    desc: "Stop N8N services"
+    cmds:
+      - |
+        echo "⏹️ Stopping N8N services..."
+        cd {{.N8N_DIR}} && docker-compose down
+        echo "✅ N8N services stopped"
+
+  restart:
+    desc: "Restart N8N services"
+    cmds:
+      - |
+        echo "🔄 Restarting N8N services..."
+        cd {{.N8N_DIR}}
+        export $(grep -v '^#' .secrets | xargs)
+        docker-compose restart
+        echo "✅ N8N services restarted"
+
+  update:
+    desc: "Update N8N to latest version"
+    cmds:
+      - |
+        echo "🔄 Updating N8N..."
+        cd {{.N8N_DIR}}
+        
+        # Create backup before update
+        task backup:create-backup
+        
+        # Pull latest images
+        export $(grep -v '^#' .secrets | xargs)
+        docker-compose pull
+        
+        # Restart with new images
+        docker-compose up -d
+        
+        # Wait for services
+        echo "⏳ Waiting for updated services..."
+        sleep 30
+        
+        echo "✅ N8N updated successfully"
+
+  status:
+    desc: "Check N8N status"
+    cmds:
+      - |
+        echo "🔍 N8N Status:"
+        if [ -f "{{.N8N_DIR}}/docker-compose.yml" ]; then
+          cd {{.N8N_DIR}}
+          echo "📊 Container Status:"
+          docker-compose ps
+          echo ""
+          echo "🔍 Health Checks:"
+          docker-compose exec -T n8n curl -f http://localhost:5678/healthz && echo "✅ N8N healthy" || echo "❌ N8N unhealthy"
+          echo ""
+          echo "💾 Database Status:"
+          docker-compose exec -T postgres pg_isready -U n8n && echo "✅ Database healthy" || echo "❌ Database unhealthy"
+        else
+          echo "❌ N8N not configured"
+        fi
+
+  logs:
+    desc: "Show N8N logs"
+    cmds:
+      - |
+        if [ -f "{{.N8N_DIR}}/docker-compose.yml" ]; then
+          cd {{.N8N_DIR}} && docker-compose logs -f
+        else
+          echo "❌ N8N not configured"
+        fi
+
+  shell:
+    desc: "Access N8N container shell"
+    cmds:
+      - |
+        echo "🐚 Accessing N8N container shell..."
+        cd {{.N8N_DIR}} && docker-compose exec n8n /bin/sh
+
+  db-shell:
+    desc: "Access PostgreSQL shell"
+    cmds:
+      - |
+        echo "🗄️ Accessing PostgreSQL shell..."
+        cd {{.N8N_DIR}}
+        source .secrets
+        docker-compose exec postgres psql -U n8n -d n8n
+
+  reset:
+    desc: "Reset N8N installation (WARNING: removes all data)"
+    interactive: true
+    cmds:
+      - |
+        echo "⚠️ This will completely remove all N8N data!"
+        read -p "Type 'RESET' to confirm: " confirm
+        
+        if [[ "$confirm" != "RESET" ]]; then
+          echo "Reset cancelled"
+          exit 0
+        fi
+        
+        echo "🗑️ Resetting N8N installation..."
+        
+        # Stop services
+        cd {{.N8N_DIR}} && docker-compose down -v 2>/dev/null || true
+        
+        # Remove data
+        docker volume rm n8n_data n8n_postgres_data 2>/dev/null || true
+        
+        # Remove configuration
+        sudo rm -rf {{.N8N_DIR}}
+        
+        echo "✅ N8N reset completed"
