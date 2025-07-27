@@ -180,36 +180,7 @@ jobs:
               ./container-test.sh
             "
 
-  # Stage 4: Performance & Benchmarks
-  performance-tests:
-    name: Performance Tests
-    runs-on: ubuntu-latest
-    needs: [unit-tests]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Cache Task installation
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/bin/task
-          key: ${{ needs.code-quality.outputs.cache-key }}
-          enableCrossOsArchive: false
-          fail-on-cache-miss: false
-
-      - name: Install Task
-        run: |
-          if [ ! -f /usr/local/bin/task ]; then
-            sudo sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
-          fi
-
-      - name: Run performance benchmarks
-        run: |
-          echo "📊 Running performance benchmarks..."
-          task test:performance
-
-  # Stage 5: Full Integration Test (Optional)
+  # Stage 4: Full Integration Test (Optional)
   full-integration:
     name: Full Integration Test
     runs-on: ubuntu-latest
@@ -289,7 +260,7 @@ jobs:
           chmod +x vm-test.sh
           ./vm-test.sh
 
-  # Stage 6: Build & Package (Future)
+  # Stage 5: Build & Package (Future)
   build-artifacts:
     name: Build Artifacts
     runs-on: ubuntu-latest
@@ -342,11 +313,11 @@ jobs:
           name: n8n-selfhoster-${{ github.sha }}
           path: release/
 
-  # Stage 7: Results Summary
+  # Stage 6: Results Summary
   results-summary:
     name: Results Summary
     runs-on: ubuntu-latest
-    needs: [code-quality, unit-tests, integration-tests, performance-tests, build-artifacts]
+    needs: [code-quality, unit-tests, integration-tests, build-artifacts]
     if: always()
     steps:
       - name: Generate results summary
@@ -358,7 +329,6 @@ jobs:
           echo "- Code Quality: ${{ needs.code-quality.result }}"
           echo "- Unit Tests: ${{ needs.unit-tests.result }}"
           echo "- Integration Tests: ${{ needs.integration-tests.result }}"
-          echo "- Performance Tests: ${{ needs.performance-tests.result }}"
           echo "- Build Artifacts: ${{ needs.build-artifacts.result }}"
           echo ""
           

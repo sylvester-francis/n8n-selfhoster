@@ -12,13 +12,11 @@ The CI pipeline uses a **multi-stage architecture** with proper dependencies and
 graph TD
     A[Code Quality & Validation] --> B[Unit Tests & Quick Validation]
     A --> C[Integration Tests]
-    B --> D[Performance Tests]
-    C --> E[Full Integration Test]
-    B --> F[Build Artifacts]
-    C --> F
-    D --> G[Results Summary]
-    E --> G
-    F --> G
+    C --> D[Full Integration Test]
+    B --> E[Build Artifacts]
+    C --> E
+    D --> F[Results Summary]
+    E --> F
 ```
 
 ## 📋 Pipeline Configuration
@@ -51,23 +49,18 @@ graph TD
 - ✅ Dry-run validation
 - 🔄 Matrix strategy for multiple OS versions
 
-#### 4. **Performance Tests** (Main/Develop only)
-- 📊 Performance benchmarks
-- ⏱️ Task execution timing
-- 💾 Resource usage validation
-
-#### 5. **Full Integration Test** (Manual dispatch only)
+#### 4. **Full Integration Test** (Manual dispatch only)
 - 🖥️ Complete VM-based testing with Multipass
 - ⚙️ Full installation test
 - 🧪 End-to-end validation
 - ⏰ 30-minute timeout
 
-#### 6. **Build Artifacts** (Main branch only)
+#### 5. **Build Artifacts** (Main branch only)
 - 📦 Creates release artifacts
 - 🗜️ Compressed installer package
 - ☁️ Uploads to GitHub Actions artifacts
 
-#### 7. **Results Summary**
+#### 6. **Results Summary**
 - 📊 Comprehensive results reporting
 - ✅ Pass/fail status for all stages
 - 🚫 Fails pipeline if critical stages fail
@@ -97,7 +90,6 @@ task test:quick         # Quick validation suite
 task test:health-check  # Health check with CI mode
 task test:connectivity  # Connectivity tests with CI mode
 task test:security      # Security validation with CI mode
-task test:performance   # Performance benchmarks
 ```
 
 ### CI Mode Detection
@@ -124,7 +116,6 @@ fi
 - ✅ **Integration Tests**: Container-based testing
 
 ### Optional Tests (Non-blocking)
-- 📊 **Performance Tests**: Only on main/develop branches
 - 🖥️ **Full Integration**: Only on manual dispatch
 - 📦 **Build Artifacts**: Only on main branch
 
