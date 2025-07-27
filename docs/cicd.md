@@ -13,10 +13,9 @@ graph TD
     A[Code Quality & Validation] --> B[Unit Tests & Quick Validation]
     A --> C[Integration Tests]
     C --> D[Full Integration Test]
-    B --> E[Build Artifacts]
+    B --> E[Results Summary]
     C --> E
-    D --> F[Results Summary]
-    E --> F
+    D --> E
 ```
 
 ## 📋 Pipeline Configuration
@@ -55,12 +54,7 @@ graph TD
 - 🧪 End-to-end validation
 - ⏰ 30-minute timeout
 
-#### 5. **Build Artifacts** (Main branch only)
-- 📦 Creates release artifacts
-- 🗜️ Compressed installer package
-- ☁️ Uploads to GitHub Actions artifacts
-
-#### 6. **Results Summary**
+#### 5. **Results Summary**
 - 📊 Comprehensive results reporting
 - ✅ Pass/fail status for all stages
 - 🚫 Fails pipeline if critical stages fail
@@ -117,7 +111,6 @@ fi
 
 ### Optional Tests (Non-blocking)
 - 🖥️ **Full Integration**: Only on manual dispatch
-- 📦 **Build Artifacts**: Only on main branch
 
 ### Matrix Testing
 - 🐧 **Ubuntu 20.04**: LTS baseline
