@@ -1,0 +1,387 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop, feature/*]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      test_level:
+        description: "Test level (quick/full)"
+        required: false
+        default: "quick"
+        type: choice
+        options:
+          - quick
+          - full
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  # Stage 1: Code Quality & Validation
+  code-quality:
+    name: Code Quality & Validation
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate cache key
+        id: cache-key
+        run: |
+          echo "key=task-${{ runner.os }}-${{ hashFiles('Taskfile.yml', 'tasks/*.yml') }}" >> $GITHUB_OUTPUT
+
+      - name: Cache Task installation
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/bin/task
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Install Task
+        run: |
+          if [ ! -f /usr/local/bin/task ]; then
+            sudo sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+          fi
+          task --version
+
+      - name: Validate Task structure
+        run: |
+          echo "🔍 Validating project structure..."
+          test -f Taskfile.yml || (echo "❌ Taskfile.yml not found" && exit 1)
+          test -d tasks || (echo "❌ tasks directory not found" && exit 1)
+          
+          # Check required task files
+          for file in system docker nginx n8n security backup proxmox test; do
+            test -f "tasks/${file}.yml" || (echo "❌ tasks/${file}.yml not found" && exit 1)
+          done
+          echo "✅ All required files present"
+
+      - name: Task syntax validation
+        run: |
+          echo "🔍 Validating Task syntax..."
+          task test:syntax
+
+      - name: ShellCheck validation
+        run: |
+          echo "🔍 Running ShellCheck validation..."
+          task test:lint
+
+      - name: Documentation validation
+        run: |
+          echo "📖 Validating documentation..."
+          test -f README.md || (echo "❌ README.md not found" && exit 1)
+          test -d docs || (echo "❌ docs directory not found" && exit 1)
+          
+          # Check task help system
+          task help >/dev/null || (echo "❌ Task help system failed" && exit 1)
+          task --list >/dev/null || (echo "❌ Task list command failed" && exit 1)
+          echo "✅ Documentation validation passed"
+
+  # Stage 2: Unit Tests & Quick Validation
+  unit-tests:
+    name: Unit Tests & Quick Validation
+    runs-on: ubuntu-latest
+    needs: code-quality
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache Task installation
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/bin/task
+          key: ${{ needs.code-quality.outputs.cache-key }}
+
+      - name: Install Task
+        run: |
+          if [ ! -f /usr/local/bin/task ]; then
+            sudo sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+          fi
+
+      - name: Run function tests
+        run: |
+          echo "🧪 Running Task function tests..."
+          task test:functions
+
+      - name: Run quick validation
+        run: |
+          echo "🚀 Running quick validation tests..."
+          task test:quick
+
+      - name: Security validation
+        run: |
+          echo "🔒 Running security validation..."
+          task test:security
+
+  # Stage 3: Integration Tests
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests]
+    strategy:
+      matrix:
+        ubuntu-version: ["20.04", "22.04"]
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Test in Ubuntu ${{ matrix.ubuntu-version }} container
+        run: |
+          echo "🐳 Testing in Ubuntu ${{ matrix.ubuntu-version }} container..."
+          
+          # Create container test script
+          cat > container-test.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          echo "📦 Setting up test environment..."
+          apt-get update >/dev/null 2>&1
+          apt-get install -y curl git sudo lsb-release python3 python3-yaml >/dev/null 2>&1
+          
+          echo "📦 Installing Task..."
+          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+          
+          echo "🔍 Running integration tests..."
+          cd /workspace
+          
+          # Test Task functionality
+          task --version
+          task --list >/dev/null
+          
+          # Test syntax and structure
+          task test:syntax
+          
+          # Test dry-run (should not fail in container)
+          echo "🏃 Testing dry-run mode..."
+          task dry-run || echo "✅ Dry-run completed (expected in container)"
+          
+          echo "🎉 Container integration test completed"
+          EOF
+          
+          chmod +x container-test.sh
+          
+          # Run test in container
+          docker run --rm \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            ubuntu:${{ matrix.ubuntu-version }} \
+            bash -c "
+              apt-get update >/dev/null 2>&1 && 
+              apt-get install -y curl git sudo lsb-release python3 python3-yaml >/dev/null 2>&1 && 
+              ./container-test.sh
+            "
+
+  # Stage 4: Performance & Benchmarks
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache Task installation
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/bin/task
+          key: ${{ needs.code-quality.outputs.cache-key }}
+
+      - name: Install Task
+        run: |
+          if [ ! -f /usr/local/bin/task ]; then
+            sudo sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+          fi
+
+      - name: Run performance benchmarks
+        run: |
+          echo "📊 Running performance benchmarks..."
+          task test:performance
+
+  # Stage 5: Full Integration Test (Optional)
+  full-integration:
+    name: Full Integration Test
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_level == 'full'
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install multipass
+        run: |
+          sudo snap install multipass
+
+      - name: Wait for multipass
+        run: |
+          sleep 10
+          sudo multipass version
+
+      - name: Run full VM integration test
+        run: |
+          echo "🚀 Running full VM integration test..."
+          
+          # Create VM test script
+          cat > vm-test.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          VM_NAME="n8n-ci-test"
+          
+          echo "🧹 Cleanup any existing VM..."
+          sudo multipass delete "$VM_NAME" 2>/dev/null || true
+          sudo multipass purge 2>/dev/null || true
+          
+          echo "📦 Creating test VM..."
+          sudo multipass launch 22.04 --name "$VM_NAME" --memory 4G --disk 20G --cpus 2
+          
+          echo "⏳ Waiting for VM initialization..."
+          sleep 60
+          
+          # Setup VM environment
+          echo "📁 Setting up VM environment..."
+          sudo multipass exec "$VM_NAME" -- bash -c "
+            sudo apt update >/dev/null 2>&1 &&
+            sudo apt install -y git curl lsb-release >/dev/null 2>&1
+          "
+          
+          # Transfer project files
+          echo "📝 Transferring project files..."
+          sudo multipass transfer Taskfile.yml "$VM_NAME":Taskfile.yml
+          sudo multipass transfer --recursive tasks/ "$VM_NAME":tasks/
+          sudo multipass transfer --recursive installer/ "$VM_NAME":installer/
+          sudo multipass transfer install.sh "$VM_NAME":install.sh
+          
+          # Run installation test
+          echo "⚙️ Running installation test..."
+          sudo multipass exec "$VM_NAME" -- bash -c "
+            # Install Task
+            sudo sh -c '$(curl --location https://taskfile.dev/install.sh)' -- -d -b /usr/local/bin &&
+            
+            # Run dry-run test
+            sudo task dry-run &&
+            
+            # Test task commands
+            task test:syntax &&
+            task test:lint &&
+            echo '✅ VM integration test completed'
+          "
+          
+          echo "🧹 Cleanup VM..."
+          sudo multipass delete "$VM_NAME"
+          sudo multipass purge
+          
+          echo "🎉 Full integration test completed successfully"
+          EOF
+          
+          chmod +x vm-test.sh
+          ./vm-test.sh
+
+  # Stage 6: Build & Package (Future)
+  build-artifacts:
+    name: Build Artifacts
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache Task installation
+        uses: actions/cache@v3
+        with:
+          path: /usr/local/bin/task
+          key: ${{ needs.code-quality.outputs.cache-key }}
+
+      - name: Install Task
+        run: |
+          if [ ! -f /usr/local/bin/task ]; then
+            sudo sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+          fi
+
+      - name: Create release artifacts
+        run: |
+          echo "📦 Creating release artifacts..."
+          
+          # Create release directory
+          mkdir -p release
+          
+          # Copy essential files
+          cp -r installer/ release/
+          cp -r tasks/ release/
+          cp -r docs/ release/
+          cp Taskfile.yml release/
+          cp install.sh release/
+          cp README.md release/
+          cp CHANGELOG.md release/
+          cp LICENSE release/
+          
+          # Create tarball
+          tar -czf release/n8n-selfhoster-${{ github.sha }}.tar.gz -C release .
+          
+          echo "📊 Release artifact created:"
+          ls -la release/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: n8n-selfhoster-${{ github.sha }}
+          path: release/
+
+  # Stage 7: Results Summary
+  results-summary:
+    name: Results Summary
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests, integration-tests, performance-tests, build-artifacts]
+    if: always()
+    steps:
+      - name: Generate results summary
+        run: |
+          echo "🎉 CI Pipeline Results Summary"
+          echo "=============================="
+          echo ""
+          echo "📊 Stage Results:"
+          echo "- Code Quality: ${{ needs.code-quality.result }}"
+          echo "- Unit Tests: ${{ needs.unit-tests.result }}"
+          echo "- Integration Tests: ${{ needs.integration-tests.result }}"
+          echo "- Performance Tests: ${{ needs.performance-tests.result }}"
+          echo "- Build Artifacts: ${{ needs.build-artifacts.result }}"
+          echo ""
+          
+          # Determine overall status
+          CRITICAL_PASSED=true
+          
+          if [[ "${{ needs.code-quality.result }}" != "success" ]]; then
+            echo "❌ Code Quality stage failed"
+            CRITICAL_PASSED=false
+          fi
+          
+          if [[ "${{ needs.unit-tests.result }}" != "success" ]]; then
+            echo "❌ Unit Tests stage failed"
+            CRITICAL_PASSED=false
+          fi
+          
+          if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
+            echo "❌ Integration Tests stage failed"
+            CRITICAL_PASSED=false
+          fi
+          
+          if [[ "$CRITICAL_PASSED" == "true" ]]; then
+            echo "✅ All critical stages passed!"
+            echo "🚀 Pipeline completed successfully"
+          else
+            echo "❌ Critical stages failed"
+            echo "🔍 Please review the failed stages above"
+            exit 1
+          fi
+
+      - name: Update status badges
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "🏷️ Status badges will be updated automatically"

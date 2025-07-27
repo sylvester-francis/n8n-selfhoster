@@ -4,8 +4,7 @@
 
 > **Latest: v1.3.1** - Complete migration to modular Task architecture with improved CI/CD, enhanced maintainability, and streamlined operations!
 
-[![Tests](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/quick-test.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/quick-test.yml)
-[![Integration Tests](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/test-installer.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/test-installer.yml)
+[![CI Pipeline](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/ci-pipeline.yml)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-20.04%2B-orange.svg)](https://ubuntu.com/)
 [![N8N](https://img.shields.io/badge/N8N-Latest-blue.svg)](https://n8n.io/)
 [![Docker](https://img.shields.io/badge/Docker-Latest-blue.svg)](https://docker.com/)
@@ -118,6 +117,7 @@ Complete documentation is available in the **[docs folder](docs/)**:
 
 ### 🔄 Migration & Development
 - **[Migration Guide](docs/migration.md)** - Shell script to Task architecture migration
+- **[CI/CD Integration](docs/cicd.md)** - Automated testing and deployment pipeline
 
 For quick help: `task help` or `task --list`
 
