@@ -1,8 +1,8 @@
 # N8N Self-Hosted Installer 🚀
 
-**High-performance, one-click installation script for a production-ready N8N instance on Ubuntu with HTTPS, PostgreSQL, comprehensive security, and Proxmox VM support.**
+**High-performance, Task-based installation system for a production-ready N8N instance on Ubuntu with HTTPS, PostgreSQL, comprehensive security, and Proxmox VM support.**
 
-> **Latest: v1.3.0** - Proxmox VM support with automatic detection, extended timeouts, VM-specific optimizations, and unified installation entry point for simplified user experience!
+> **Latest: v1.3.1** - Complete migration to modular Task architecture with improved CI/CD, enhanced maintainability, and streamlined operations!
 
 [![Tests](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/quick-test.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/quick-test.yml)
 [![Integration Tests](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/test-installer.yml/badge.svg)](https://github.com/sylvester-francis/n8n-selfhoster/actions/workflows/test-installer.yml)
@@ -38,11 +38,13 @@
 
 ## 🚀 Quick Start
 
-### 🎯 **Recommended: One-Line Smart Installation**
+### 🎯 **Recommended: Task-based Installation**
 
 ```bash
-# 🔍 Automatically detects your environment and applies optimal settings
+# 🔍 Modern Task-based installer with automatic environment detection
 curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash
+# OR using Task directly (if already installed):
+task install
 ```
 
 **What happens automatically:**
@@ -71,21 +73,30 @@ curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/ma
 curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash -s -- --quick --yes
 ```
 
-### 📦 **Local Installation** (if curl fails or offline setup)
+### 📦 **Local Task Installation** (recommended for development/management)
 
 ```bash
 # Clone the repository
 git clone https://github.com/sylvester-francis/n8n-selfhoster.git
 cd n8n-selfhoster
 
-# Interactive installation with auto-detection
-sudo ./install.sh
+# Install Task (if not already installed)
+curl -sL https://taskfile.dev/install.sh | sudo sh -s -- -b /usr/local/bin
 
-# With specific options
-sudo ./install.sh --type proxmox --domain myserver.com --yes
+# Interactive installation with auto-detection
+task install
+
+# Proxmox-optimized installation
+task proxmox
+
+# Quick installation (testing)
+task quick
 
 # Preview what will be installed (dry run)
-sudo ./install.sh --dry-run
+task dry-run
+
+# Show all available commands
+task --list
 ```
 
 ### What Gets Installed
@@ -121,6 +132,15 @@ sudo ./install.sh --dry-run
 - 🛡️ **Firewall protection** with UFW
 - 📦 **Automated daily backups** with rotation
 - 🔐 **Security hardening** with Fail2Ban
+
+### 🛠️ Task-based Architecture
+
+- 📋 **Modular Task system** - Clean, maintainable command structure
+- 🎯 **Organized workflows** - Separate tasks for each component
+- 🔧 **Easy management** - Simple task commands for all operations
+- 🧪 **Built-in testing** - Comprehensive test suite with task commands
+- 📊 **Status monitoring** - Real-time system health checks
+- 🔄 **Simplified CI/CD** - Unified testing and validation
 
 ### 🖥️ Virtualization Support
 
@@ -638,27 +658,43 @@ sudo systemctl restart nginx
 
 ## 🔧 Management & Operations
 
-### Service Management
+### Task-based Service Management
 
 ```bash
-# Check status
-cd /opt/n8n && docker-compose ps
+# Check system status
+task status
+
+# Check specific component status
+task docker:status
+task nginx:status
+task n8n:status
+task backup:status
+task security:status
 
 # View logs
+task logs                    # N8N logs
+task nginx:logs             # Nginx logs
+task docker:logs            # Docker logs
+
+# Service control
+task n8n:start              # Start N8N services
+task n8n:stop               # Stop N8N services
+task n8n:restart            # Restart N8N services
+task nginx:restart          # Restart Nginx
+task docker:restart         # Restart Docker
+
+# System updates
+task update                 # Update N8N to latest version
+task n8n:update            # N8N-specific update
+```
+
+### Legacy Docker Commands (still supported)
+
+```bash
+# Direct Docker management
+cd /opt/n8n && docker-compose ps
 cd /opt/n8n && docker-compose logs n8n
-cd /opt/n8n && docker-compose logs postgres
-
-# Restart services
 cd /opt/n8n && docker-compose restart n8n
-cd /opt/n8n && docker-compose restart postgres
-
-# Stop services
-cd /opt/n8n && docker-compose stop
-
-# Start services
-cd /opt/n8n && docker-compose start
-
-# Update N8N
 cd /opt/n8n && docker-compose pull && docker-compose up -d
 ```
 
@@ -684,23 +720,24 @@ sudo journalctl -u nginx -f
 sudo journalctl -u docker -f
 ```
 
-### Backup Management
+### Task-based Backup Management
 
 ```bash
-# Run manual backup
-/opt/n8n/backup.sh
+# Backup operations
+task backup                 # Create manual backup
+task backup:create-backup   # Same as above
+task backup:list           # List available backups
+task backup:status         # Show backup system status
+task backup:verify         # Verify backup integrity
+task backup:cleanup        # Clean old backups
+task backup:restore        # Interactive restore
 
-# View backup files
-ls -la /opt/n8n/backups/
+# Backup scheduling
+task backup:schedule       # Setup automatic backups
 
-# Check backup schedule
-sudo crontab -l | grep backup
-
-# Restore from backup (example)
-cd /opt/n8n
-docker-compose stop
-# Restore volumes from backup
-docker-compose start
+# Legacy backup commands (still supported)
+/opt/n8n/backup.sh         # Manual backup script
+ls -la /opt/n8n/backups/   # View backup files
 ```
 
 ### Monitoring and Health Checks
@@ -1452,25 +1489,37 @@ docker-compose start n8n
 
 ## 🧪 Testing & Validation
 
-### Automated Testing Suite
+### Task-based Testing Suite
 
-The project includes comprehensive testing:
+The project includes comprehensive testing with Task commands:
 
 ```bash
-# Run basic installation test
+# Main testing commands
+task test                   # Run all tests
+task test:quick            # Quick validation tests
+task test:comprehensive    # Full test suite
+task test:lint             # Code quality checks
+task test:syntax           # Configuration syntax validation
+
+# Specific component tests
+task test:health-check     # System health validation
+task test:connectivity     # Network connectivity tests
+task test:security         # Security configuration audit
+task test:performance      # Performance benchmarks
+task test:functions        # Task functionality tests
+
+# System status and monitoring
+task test:status           # Overall system status
+```
+
+### Legacy Testing Scripts (still available)
+
+```bash
+# Direct script execution
 ./tests/test-installer.sh
-
-# Run Proxmox-specific tests
 ./tests/test-proxmox-fixes.sh
-
-# Run comprehensive multi-environment tests
 ./tests/test-comprehensive.sh
-
-# Run quick validation tests
 ./tests/test-quick.sh
-
-# Run focused component tests
-./tests/test-focused.sh
 ```
 
 ### Manual Validation Checklist
@@ -1546,7 +1595,32 @@ ORDER BY n_distinct DESC;"
 
 ## 📋 Version History
 
-### v1.3.0 (Latest) - Proxmox VM Support + Unified Entry Point Release
+### v1.3.1 (Latest) - Task Architecture Migration Release
+
+**🛠️ Major Architecture Modernization:**
+- 📋 **Complete Task migration** - Migrated from shell scripts to modular Taskfile architecture
+- 🎯 **Organized task structure** - 8 specialized task modules (docker, nginx, n8n, security, backup, proxmox, system, test)
+- 🔧 **Unified command interface** - All operations now available via `task` commands
+- 🧪 **Enhanced testing framework** - Comprehensive test suite with task-based validation
+- 🔄 **Modernized CI/CD** - Updated GitHub workflows to use Task-based testing
+- 📊 **Improved maintainability** - YAML-based configuration easier to read and modify
+- ⚡ **Silent execution** - Clean output with `silent: true` configuration
+
+**🎛️ New Task Commands:**
+- `task install` - Smart installation with auto-detection
+- `task status` - Comprehensive system status
+- `task backup` - Backup management
+- `task test:*` - Full testing suite
+- `task help` - Interactive help system
+- 50+ specialized task commands for all operations
+
+**🔄 CI/CD Improvements:**
+- Updated all GitHub workflows to use Task
+- Streamlined testing with unified task commands
+- Removed redundant CI/CD actions
+- Enhanced validation with task-based checks
+
+### v1.3.0 - Proxmox VM Support + Unified Entry Point Release
 
 **🖥️ Major Virtualization Support:**
 - 🔍 **Automatic Proxmox detection** - 6-point detection system
@@ -1615,76 +1689,127 @@ ORDER BY n_distinct DESC;"
 
 ### 🔧 **Complete Command Reference**
 
-#### **Installation Commands**
+#### **Task-based Installation Commands**
 ```bash
-# 🎯 Smart Installation (Recommended)
-curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash
+# 🎯 Modern Task-based Installation (Recommended)
+# First install Task, then run installation
+curl -sL https://taskfile.dev/install.sh | sudo sh -s -- -b /usr/local/bin
+task install                                    # Smart installation with auto-detection
 
 # 🖥️ Proxmox VM Installation
-curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash -s -- --type proxmox --yes
-curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash -s -- --type proxmox --domain n8n.local --yes
+task proxmox                                    # Proxmox-optimized installation
+task install INSTALL_TYPE=proxmox              # Alternative syntax
 
-# 💻 Standard Installation (No VM Optimizations)
-curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash -s -- --type standard --yes
-curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash -s -- --type standard --ip 192.168.1.100 --yes
+# 💻 Standard Installation
+task standard                                   # Standard installation
+task install INSTALL_TYPE=standard             # Alternative syntax
 
 # ⚡ Quick Installation
-curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash -s -- --quick --yes
+task quick                                      # Quick installation for testing
 
-# 🌐 Custom Domain Installation
-curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash -s -- --domain myserver.com --timezone America/New_York --yes
+# 🔍 Preview and Information
+task dry-run                                    # Preview installation
+task help                                       # Show help and examples
+task --list                                     # Show all available tasks
+task version                                    # Show version information
 
-# 📦 Local Installation
+# 📦 Local Task Installation
 git clone https://github.com/sylvester-francis/n8n-selfhoster.git
 cd n8n-selfhoster
-sudo ./install.sh                              # Interactive with auto-detection
-sudo ./install.sh --type proxmox --yes         # Proxmox optimized
-sudo ./install.sh --help                       # Show all options
-sudo ./install.sh --dry-run --verbose          # Preview installation
+curl -sL https://taskfile.dev/install.sh | sudo sh -s -- -b /usr/local/bin
+task install                                    # Interactive with auto-detection
+task proxmox                                    # Proxmox optimized
+task dry-run                                    # Preview installation
 ```
 
-#### **Service Management Commands**
+#### **Legacy Installation Commands (still supported)**
 ```bash
-# Docker Services
+# Legacy shell script installation
+curl -fsSL https://raw.githubusercontent.com/sylvester-francis/n8n-selfhoster/main/install.sh | sudo bash
+sudo ./install.sh --type proxmox --yes
+sudo ./install.sh --help
+```
+
+#### **Task-based Service Management Commands**
+```bash
+# System Status and Monitoring
+task status                                    # Overall system status
+task docker:status                            # Docker status
+task nginx:status                             # Nginx status
+task n8n:status                               # N8N status
+task backup:status                            # Backup system status
+task security:status                          # Security status
+
+# Service Control
+task n8n:start                                # Start N8N services
+task n8n:stop                                 # Stop N8N services
+task n8n:restart                              # Restart N8N services
+task nginx:start                              # Start Nginx
+task nginx:stop                               # Stop Nginx
+task nginx:restart                            # Restart Nginx
+task docker:start                             # Start Docker
+task docker:restart                           # Restart Docker
+
+# Logs and Monitoring
+task logs                                     # N8N logs
+task nginx:logs                               # Nginx logs
+task docker:logs                              # Docker logs
+task security:logs                            # Security logs
+task backup:logs                              # Backup logs
+```
+
+#### **Legacy Docker Commands (still supported)**
+```bash
+# Direct Docker management
 cd /opt/n8n
 docker-compose ps                              # Show container status
 docker-compose logs n8n                       # N8N logs
-docker-compose logs postgres                  # Database logs
-docker-compose logs -f n8n                    # Follow N8N logs
 docker-compose restart n8n                    # Restart N8N
-docker-compose restart postgres               # Restart database
-docker-compose down                           # Stop all services
 docker-compose up -d                          # Start all services
 
 # System Services
 sudo systemctl status nginx                   # Nginx status
 sudo systemctl restart nginx                  # Restart Nginx
-sudo systemctl reload nginx                   # Reload Nginx config
-sudo systemctl status docker                  # Docker status
-sudo systemctl restart docker                 # Restart Docker
 ```
 
-#### **Maintenance Commands**
+#### **Task-based Maintenance Commands**
 ```bash
-# Backups
-cd /opt/n8n
-./backup.sh                                   # Manual backup
-ls -la backups/                               # List backups
-./backup.sh restore backup_20240101_120000.tar.gz  # Restore backup
+# Backup Management
+task backup                                   # Create manual backup
+task backup:create-backup                    # Same as above
+task backup:list                             # List available backups
+task backup:status                           # Backup system status
+task backup:verify                           # Verify backup integrity
+task backup:cleanup                          # Clean old backups
+task backup:restore                          # Interactive restore
+task backup:schedule                         # Setup automatic backups
 
-# Updates
-cd /opt/n8n
-docker-compose pull                           # Pull latest images
-docker-compose up -d                          # Apply updates
-docker system prune -f                        # Cleanup old images
+# System Updates
+task update                                   # Update N8N to latest version
+task n8n:update                             # N8N-specific update
+task system:update                          # Update system packages
 
-# Monitoring
-docker stats                                  # Container resource usage
-docker system df                              # Docker disk usage
-htop                                          # System resources
-sudo nginx -t                                # Test Nginx config
-curl -s http://localhost:5678                # Test N8N direct access
-curl -k -s https://localhost                 # Test HTTPS proxy
+# Testing and Validation
+task test                                    # Run all tests
+task test:quick                             # Quick validation
+task test:health-check                      # Health check
+task test:connectivity                      # Test connections
+task test:security                          # Security audit
+task test:performance                       # Performance tests
+
+# System Management
+task clean                                   # Clean up temporary files
+task system:optimize-performance            # Apply performance optimizations
+task security:audit                         # Security audit
+task proxmox:status                         # Proxmox VM status (if applicable)
+```
+
+#### **Legacy Maintenance Commands (still supported)**
+```bash
+# Manual backup and monitoring
+/opt/n8n/backup.sh                          # Manual backup
+docker stats                                # Container resource usage
+curl -s http://localhost:5678               # Test N8N direct access
 ```
 
 #### **Troubleshooting Commands**

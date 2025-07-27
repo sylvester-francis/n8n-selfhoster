@@ -5,6 +5,80 @@ All notable changes to the N8N Self-Hosted Installer project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2024-07-27
+
+### 🛠️ Major Architecture Migration Release
+
+#### **Complete Task-based Architecture Implementation**
+
+- **BREAKING**: Migrated entire project from shell scripts to modular Taskfile system
+- **Added** 8 specialized task modules: `docker.yml`, `nginx.yml`, `n8n.yml`, `security.yml`, `backup.yml`, `proxmox.yml`, `system.yml`, `test.yml`
+- **Added** 50+ task commands organized into logical namespaces
+- **Added** `silent: true` to Taskfile for clean output experience
+- **Added** comprehensive help system with `task help` command
+
+#### **Enhanced Operations & Management**
+
+- **Added** unified command interface: `task status`, `task backup`, `task test:*`
+- **Added** modular service management: `task docker:status`, `task n8n:restart`
+- **Added** comprehensive testing suite: `task test:quick`, `task test:comprehensive`
+- **Added** security auditing: `task security:audit`, `task security:status`
+- **Added** backup management: `task backup:list`, `task backup:restore`
+
+#### **Modernized CI/CD Pipeline**
+
+- **Updated** all GitHub workflows to use Task-based testing
+- **Replaced** shell script CI/CD with task commands
+- **Streamlined** testing with unified `task test:*` approach
+- **Enhanced** validation with task-based health checks
+- **Removed** redundant CI/CD workflows post-migration
+
+#### **Developer Experience Improvements**
+
+- **Enhanced** maintainability with YAML-based configuration
+- **Improved** discoverability with `task --list` command
+- **Simplified** development workflow with organized task structure
+- **Added** task-based documentation and examples
+- **Created** migration guide for shell-to-task transition
+
+#### **Task Command Examples**
+```bash
+# Installation & Management
+task install              # Smart installation with auto-detection
+task proxmox              # Proxmox-optimized installation
+task status               # System status overview
+task backup               # Create backup
+
+# Development & Testing
+task test                 # Run all tests
+task test:lint           # Code quality checks
+task dry-run             # Preview installation
+task --list              # Show all commands
+```
+
+#### **Migration from Shell Scripts**
+```bash
+# Before (v1.3.0 - Shell)        # After (v1.3.1 - Task)
+sudo ./install.sh --type proxmox  →  task proxmox
+cd /opt/n8n && docker-compose ps  →  task n8n:status
+./tests/test-quick.sh             →  task test:quick
+```
+
+#### **Documentation Updates**
+
+- **Updated** README.md with complete Task-based examples
+- **Added** Task installation instructions
+- **Enhanced** command reference with task examples
+- **Updated** troubleshooting guide with task commands
+- **Maintained** backward compatibility documentation
+
+#### **Deprecated (Still Supported)**
+
+- Direct shell script execution (Task commands are now preferred)
+- Some legacy CI/CD workflows (cleaned up redundant actions)
+
+---
+
 ## [1.3.0] - 2024-07-26
 
 ### 🎯 Major Features
