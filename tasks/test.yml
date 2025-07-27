@@ -251,30 +251,85 @@ tasks:
       - |
         echo "⚡ Performance Testing..."
         
-        # Test Docker performance
-        echo "🐳 Docker Performance:"
-        docker info | grep -E "CPUs|Total Memory" | sed 's/^/ /'
+        CI_MODE="${CI:-false}"
+        ERRORS=0
+        
+        # Test system performance
+        echo "🐳 System Performance:"
+        if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+          docker info 2>/dev/null | grep -E "CPUs|Total Memory" | sed 's/^/  /' || echo "  Docker info not available"
+        else
+          echo "  Docker not available (using system info)"
+          # Show system info instead
+          if command -v nproc >/dev/null 2>&1; then
+            echo "  CPUs: $(nproc)"
+          fi
+          if [ -f /proc/meminfo ]; then
+            grep MemTotal /proc/meminfo | awk '{print "  Total Memory: " $2/1024/1024 " GB"}' 2>/dev/null || true
+          elif command -v sysctl >/dev/null 2>&1; then
+            sysctl -n hw.ncpu 2>/dev/null | sed 's/^/  CPUs: /' || true
+            sysctl -n hw.memsize 2>/dev/null | awk '{print "  Total Memory: " $1/1024/1024/1024 " GB"}' || true
+          fi
+        fi
         
         # Test disk I/O
         echo ""
         echo "💾 Disk I/O Test:"
         if command -v dd >/dev/null 2>&1; then
           echo "  Write test (100MB):"
-          dd if=/dev/zero of=/tmp/testfile bs=1M count=100 2>&1 | grep copied | sed 's/^/  /'
-          rm -f /tmp/testfile
+          if dd if=/dev/zero of=/tmp/testfile bs=1M count=100 >/dev/null 2>&1; then
+            echo "  ✅ Disk I/O test completed"
+            # Show file size for verification
+            if [ -f /tmp/testfile ]; then
+              ls -lh /tmp/testfile | awk '{print "    File size: " $5}' || true
+            fi
+          else
+            echo "  ❌ Disk I/O test failed"
+            # Don't fail in CI or if it's just a permissions issue
+            echo "    ℹ️ This may be due to permissions or disk space"
+          fi
+          rm -f /tmp/testfile 2>/dev/null || true
+        else
+          echo "  dd command not available"
         fi
         
-        # Test network
+        # Test network connectivity
         echo ""
         echo "🌐 Network Test:"
-        echo "  Ping test to Google DNS:"
-        ping -c 3 8.8.8.8 | tail -1 | sed 's/^/  /'
+        echo "  Connectivity test:"
+        if ping -c 3 8.8.8.8 >/dev/null 2>&1; then
+          echo "  ✅ Network connectivity: OK"
+          ping -c 3 8.8.8.8 2>/dev/null | tail -1 | sed 's/^/    /' || true
+        elif curl -s --connect-timeout 5 https://google.com >/dev/null 2>&1; then
+          echo "  ✅ Network connectivity: OK (via HTTPS)"
+        else
+          echo "  ❌ Network connectivity: Failed"
+          if [ "$CI_MODE" = "true" ]; then
+            echo "    ℹ️ Network restrictions in CI environment"
+          else
+            ERRORS=$((ERRORS + 1))
+          fi
+        fi
         
-        # Test N8N response time
-        if curl -f -s http://localhost:5678 >/dev/null; then
-          echo ""
-          echo "⏱️ N8N Response Time:"
-          time curl -f -s http://localhost:5678 >/dev/null 2>&1 | sed 's/^/  /'
+        # Test N8N response time (if available)
+        echo ""
+        echo "⏱️ N8N Performance:"
+        if curl -f -s http://localhost:5678 >/dev/null 2>&1; then
+          echo "  N8N Response Time:"
+          time curl -f -s http://localhost:5678 >/dev/null 2>&1 | sed 's/^/    /' || echo "    Response time test completed"
+        else
+          echo "  N8N not available (expected if not installed)"
+        fi
+        
+        # Summary
+        echo ""
+        if [ $ERRORS -eq 0 ]; then
+          echo "✅ Performance tests completed successfully"
+        else
+          echo "⚠️ Performance tests completed with $ERRORS issues"
+          if [ "$CI_MODE" != "true" ]; then
+            exit 1
+          fi
         fi
 
   security:
