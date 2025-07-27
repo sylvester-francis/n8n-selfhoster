@@ -40,6 +40,8 @@ jobs:
         with:
           path: /usr/local/bin/task
           key: ${{ steps.cache-key.outputs.key }}
+          enableCrossOsArchive: false
+          fail-on-cache-miss: false
 
       - name: Install Task
         run: |
@@ -95,6 +97,8 @@ jobs:
         with:
           path: /usr/local/bin/task
           key: ${{ needs.code-quality.outputs.cache-key }}
+          enableCrossOsArchive: false
+          fail-on-cache-miss: false
 
       - name: Install Task
         run: |
@@ -191,6 +195,8 @@ jobs:
         with:
           path: /usr/local/bin/task
           key: ${{ needs.code-quality.outputs.cache-key }}
+          enableCrossOsArchive: false
+          fail-on-cache-miss: false
 
       - name: Install Task
         run: |
@@ -298,6 +304,8 @@ jobs:
         with:
           path: /usr/local/bin/task
           key: ${{ needs.code-quality.outputs.cache-key }}
+          enableCrossOsArchive: false
+          fail-on-cache-miss: false
 
       - name: Install Task
         run: |
