@@ -1,4 +1,4 @@
-name: ShellCheck
+name: Task Validation
 
 on:
   push:
@@ -7,16 +7,20 @@ on:
     branches: [ main ]
 
 jobs:
-  shellcheck:
+  task-validation:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Run ShellCheck on modular installer
-      uses: ludeeus/action-shellcheck@master
-      with:
-        scandir: 'installer'
-        format: gcc
-        severity: error
+    - name: Install Task
+      run: |
+        sudo sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+        
+    - name: Run Task-based validation
+      run: |
+        echo "🔍 Running Task validation..."
+        task test:lint
+        task test:syntax
+        task test:quick

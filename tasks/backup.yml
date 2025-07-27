@@ -1,0 +1,309 @@
+# Backup and restore tasks
+version: "3"
+
+vars:
+  BACKUP_RETENTION_DAYS: 30
+
+tasks:
+  setup:
+    desc: "Setup backup system"
+    cmds:
+      - |
+        echo "💾 Setting up backup system..."
+
+        # Create backup directory
+        sudo mkdir -p {{.BACKUP_DIR}}
+        sudo chown -R $USER:$USER {{.BACKUP_DIR}}
+
+        # Create backup script
+        cat > {{.BACKUP_DIR}}/backup.sh << 'EOF'
+        #!/bin/bash
+        set -euo pipefail
+
+        BACKUP_DIR="{{.BACKUP_DIR}}"
+        N8N_DIR="{{.N8N_DIR}}"
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        BACKUP_NAME="n8n_backup_${TIMESTAMP}"
+
+        echo "🗂️ Creating backup: $BACKUP_NAME"
+
+        # Create backup directory
+        mkdir -p "$BACKUP_DIR/$BACKUP_NAME"
+
+        # Stop N8N services
+        echo "⏹️ Stopping N8N services..."
+        cd "$N8N_DIR" && docker-compose stop
+
+        # Backup database
+        echo "💾 Backing up database..."
+        source "$N8N_DIR/.secrets"
+        cd "$N8N_DIR"
+        docker-compose exec -T postgres pg_dump -U n8n -d n8n > "$BACKUP_DIR/$BACKUP_NAME/database.sql"
+
+        # Backup N8N data volume
+        echo "📁 Backing up N8N data..."
+        docker run --rm -v n8n_data:/data -v "$BACKUP_DIR/$BACKUP_NAME":/backup alpine tar czf /backup/n8n_data.tar.gz -C /data .
+
+        # Backup configuration files
+        echo "⚙️ Backing up configuration..."
+        cp "$N8N_DIR/docker-compose.yml" "$BACKUP_DIR/$BACKUP_NAME/"
+        cp "$N8N_DIR/.secrets" "$BACKUP_DIR/$BACKUP_NAME/"
+
+        # Backup Nginx configuration
+        if [ -f "/etc/nginx/sites-available/n8n" ]; then
+          cp "/etc/nginx/sites-available/n8n" "$BACKUP_DIR/$BACKUP_NAME/nginx_n8n.conf"
+        fi
+
+        # Create backup info
+        cat > "$BACKUP_DIR/$BACKUP_NAME/backup_info.txt" << EOL
+        Backup Created: $(date)
+        N8N Version: $(cd "$N8N_DIR" && docker-compose exec -T n8n n8n --version 2>/dev/null || echo "unknown")
+        Database: PostgreSQL
+        Backup Type: Full
+        EOL
+
+        # Restart N8N services
+        echo "🚀 Restarting N8N services..."
+        cd "$N8N_DIR"
+        export $(grep -v '^#' .secrets | xargs)
+        docker-compose start
+
+        # Create compressed archive
+        echo "🗜️ Compressing backup..."
+        cd "$BACKUP_DIR"
+        tar czf "${BACKUP_NAME}.tar.gz" "$BACKUP_NAME"
+        rm -rf "$BACKUP_NAME"
+
+        echo "✅ Backup completed: ${BACKUP_NAME}.tar.gz"
+        EOF
+
+        chmod +x {{.BACKUP_DIR}}/backup.sh
+
+        # Setup automatic cleanup script
+        cat > {{.BACKUP_DIR}}/cleanup.sh << 'EOF'
+        #!/bin/bash
+        set -euo pipefail
+
+        BACKUP_DIR="{{.BACKUP_DIR}}"
+        RETENTION_DAYS={{.BACKUP_RETENTION_DAYS}}
+
+        echo "🧹 Cleaning up old backups (older than $RETENTION_DAYS days)..."
+
+        find "$BACKUP_DIR" -name "n8n_backup_*.tar.gz" -type f -mtime +$RETENTION_DAYS -delete
+
+        echo "✅ Cleanup completed"
+        EOF
+
+        chmod +x {{.BACKUP_DIR}}/cleanup.sh
+
+        echo "✅ Backup system setup completed"
+
+  create-backup:
+    desc: "Create manual backup"
+    deps: [setup]
+    cmds:
+      - |
+        echo "💾 Creating manual backup..."
+        {{.BACKUP_DIR}}/backup.sh
+
+  restore:
+    desc: "Restore from backup"
+    interactive: true
+    cmds:
+      - |
+        echo "🔄 Available backups:"
+        ls -la {{.BACKUP_DIR}}/*.tar.gz 2>/dev/null || { echo "No backups found"; exit 1; }
+        echo ""
+
+        read -p "Enter backup filename to restore: " BACKUP_FILE
+
+        if [ ! -f "{{.BACKUP_DIR}}/$BACKUP_FILE" ]; then
+          echo "❌ Backup file not found"
+          exit 1
+        fi
+
+        echo "⚠️ This will replace current N8N installation!"
+        read -p "Type 'RESTORE' to confirm: " confirm
+
+        if [[ "$confirm" != "RESTORE" ]]; then
+          echo "Restore cancelled"
+          exit 0
+        fi
+
+        echo "🔄 Restoring from backup: $BACKUP_FILE"
+
+        # Extract backup
+        cd {{.BACKUP_DIR}}
+        tar xzf "$BACKUP_FILE"
+        BACKUP_NAME=$(basename "$BACKUP_FILE" .tar.gz)
+
+        # Stop current services
+        echo "⏹️ Stopping current services..."
+        cd {{.N8N_DIR}} && docker-compose down -v 2>/dev/null || true
+
+        # Restore configuration files
+        echo "⚙️ Restoring configuration..."
+        cp "$BACKUP_NAME/docker-compose.yml" {{.N8N_DIR}}/
+        cp "$BACKUP_NAME/.secrets" {{.N8N_DIR}}/
+
+        # Restore Nginx configuration
+        if [ -f "$BACKUP_NAME/nginx_n8n.conf" ]; then
+          sudo cp "$BACKUP_NAME/nginx_n8n.conf" /etc/nginx/sites-available/n8n
+        fi
+
+        # Start services
+        echo "🚀 Starting services..."
+        cd {{.N8N_DIR}}
+        export $(grep -v '^#' .secrets | xargs)
+        docker-compose up -d postgres
+
+        # Wait for database
+        echo "⏳ Waiting for database..."
+        sleep 10
+
+        # Restore database
+        echo "💾 Restoring database..."
+        docker-compose exec -T postgres psql -U n8n -d n8n < "{{.BACKUP_DIR}}/$BACKUP_NAME/database.sql"
+
+        # Restore N8N data
+        echo "📁 Restoring N8N data..."
+        docker run --rm -v n8n_data:/data -v "{{.BACKUP_DIR}}/$BACKUP_NAME":/backup alpine tar xzf /backup/n8n_data.tar.gz -C /data
+
+        # Start N8N
+        echo "🚀 Starting N8N..."
+        docker-compose up -d
+
+        # Cleanup extracted files
+        rm -rf "{{.BACKUP_DIR}}/$BACKUP_NAME"
+
+        echo "✅ Restore completed successfully"
+
+  schedule:
+    desc: "Setup automatic backups"
+    cmds:
+      - |
+        echo "⏰ Setting up automatic backups..."
+
+        # Check if skip backups is enabled
+        source .env 2>/dev/null || true
+        if [[ "${SKIP_BACKUPS:-false}" == "true" ]]; then
+          echo "⏭️ Automatic backups skipped"
+          exit 0
+        fi
+
+        # Create cron job for daily backups at 2 AM
+        CRON_JOB="0 2 * * * {{.BACKUP_DIR}}/backup.sh >> /var/log/n8n-backup.log 2>&1"
+
+        # Add cron job if it doesn't exist
+        (crontab -l 2>/dev/null | grep -v "n8n-backup"; echo "$CRON_JOB") | crontab -
+
+        # Create cron job for weekly cleanup on Sundays at 3 AM
+        CLEANUP_JOB="0 3 * * 0 {{.BACKUP_DIR}}/cleanup.sh >> /var/log/n8n-backup.log 2>&1"
+        (crontab -l 2>/dev/null | grep -v "cleanup.sh"; echo "$CLEANUP_JOB") | crontab -
+
+        # Create log file
+        sudo touch /var/log/n8n-backup.log
+        sudo chown $USER:$USER /var/log/n8n-backup.log
+
+        echo "✅ Automatic backups scheduled:"
+        echo "  Daily backup: 2:00 AM"
+        echo "  Weekly cleanup: Sunday 3:00 AM"
+        echo "  Log file: /var/log/n8n-backup.log"
+
+  list:
+    desc: "List available backups"
+    cmds:
+      - |
+        echo "💾 Available Backups:"
+        echo "===================="
+
+        if ls {{.BACKUP_DIR}}/*.tar.gz >/dev/null 2>&1; then
+          for backup in {{.BACKUP_DIR}}/*.tar.gz; do
+            filename=$(basename "$backup")
+            size=$(du -h "$backup" | cut -f1)
+            date=$(stat -c %y "$backup" | cut -d' ' -f1,2)
+            echo "📦 $filename ($size) - $date"
+          done
+        else
+          echo "No backups found in {{.BACKUP_DIR}}"
+        fi
+
+        echo ""
+        echo "💽 Disk Usage:"
+        du -sh {{.BACKUP_DIR}} 2>/dev/null || echo "Backup directory not found"
+
+  cleanup:
+    desc: "Clean up old backups"
+    cmds:
+      - |
+        echo "🧹 Cleaning up old backups..."
+        {{.BACKUP_DIR}}/cleanup.sh
+
+  verify:
+    desc: "Verify backup integrity"
+    cmds:
+      - |
+        echo "🔍 Verifying backup integrity..."
+
+        ERRORS=0
+
+        for backup in {{.BACKUP_DIR}}/*.tar.gz; do
+          if [ -f "$backup" ]; then
+            filename=$(basename "$backup")
+            echo "Checking: $filename"
+            
+            # Test archive integrity
+            if tar tzf "$backup" >/dev/null 2>&1; then
+              echo "  ✅ Archive integrity: OK"
+            else
+              echo "  ❌ Archive integrity: FAILED"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            # Check if backup contains required files
+            if tar tzf "$backup" | grep -q "database.sql" && \
+               tar tzf "$backup" | grep -q "n8n_data.tar.gz" && \
+               tar tzf "$backup" | grep -q "docker-compose.yml"; then
+              echo "  ✅ Backup completeness: OK"
+            else
+              echo "  ❌ Backup completeness: FAILED"
+              ERRORS=$((ERRORS + 1))
+            fi
+            echo ""
+          fi
+        done
+
+        if [ $ERRORS -eq 0 ]; then
+          echo "✅ All backups verified successfully"
+        else
+          echo "❌ Found $ERRORS errors in backups"
+          exit 1
+        fi
+
+  status:
+    desc: "Show backup status"
+    cmds:
+      - |
+        echo "💾 Backup System Status:"
+        echo "======================="
+
+        echo "📁 Backup Directory: {{.BACKUP_DIR}}"
+        echo "📊 Directory Size: $(du -sh {{.BACKUP_DIR}} 2>/dev/null | cut -f1 || echo 'N/A')"
+        echo "📦 Backup Count: $(ls {{.BACKUP_DIR}}/*.tar.gz 2>/dev/null | wc -l)"
+        echo ""
+
+        echo "⏰ Scheduled Backups:"
+        if crontab -l 2>/dev/null | grep -q "backup.sh"; then
+          echo "  Status: Enabled"
+          crontab -l | grep "backup.sh"
+        else
+          echo "  Status: Not scheduled"
+        fi
+        echo ""
+
+        echo "📋 Recent Backup Activity:"
+        if [ -f "/var/log/n8n-backup.log" ]; then
+          tail -n 5 /var/log/n8n-backup.log
+        else
+          echo "  No backup logs found"
+        fi

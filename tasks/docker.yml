@@ -1,0 +1,94 @@
+# Docker installation and management tasks
+version: '3'
+
+vars:
+  DOCKER_COMPOSE_VERSION: "2.24.5"
+
+tasks:
+  install:
+    desc: "Install Docker and Docker Compose"
+    cmds:
+      - |
+        echo "🐳 Installing Docker and Docker Compose..."
+        
+        # Check if Docker is already installed
+        if command -v docker >/dev/null 2>&1; then
+          echo "✅ Docker already installed: $(docker --version)"
+          
+          # Check if Docker is running
+          if ! docker info >/dev/null 2>&1; then
+            echo "⚠️ Docker is not running, starting..."
+            sudo systemctl start docker
+            sudo systemctl enable docker
+          fi
+        else
+          # Install Docker using official script
+          echo "📦 Installing Docker..."
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sudo sh get-docker.sh
+          rm get-docker.sh
+          
+          # Start and enable Docker
+          sudo systemctl start docker
+          sudo systemctl enable docker
+          
+          # Add current user to docker group
+          sudo usermod -aG docker $USER
+        fi
+        
+        # Install Docker Compose
+        if ! command -v docker-compose >/dev/null 2>&1; then
+          echo "📦 Installing Docker Compose..."
+          sudo curl -L "https://github.com/docker/compose/releases/download/v{{.DOCKER_COMPOSE_VERSION}}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+        fi
+        
+        echo "✅ Docker installation completed"
+
+  start:
+    desc: "Start Docker services"
+    cmds:
+      - |
+        echo "🚀 Starting Docker services..."
+        sudo systemctl start docker
+        sudo systemctl enable docker
+        echo "✅ Docker services started"
+
+  stop:
+    desc: "Stop Docker services"
+    cmds:
+      - |
+        echo "⏹️ Stopping Docker services..."
+        sudo systemctl stop docker
+        echo "✅ Docker services stopped"
+
+  status:
+    desc: "Check Docker status"
+    cmds:
+      - |
+        echo "🔍 Docker Status:"
+        echo "  Service: $(systemctl is-active docker)"
+        echo "  Version: $(docker --version)"
+        echo "  Compose: $(docker-compose --version)"
+        echo ""
+        echo "📊 Running containers:"
+        docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+  clean:
+    desc: "Clean up Docker resources"
+    cmds:
+      - |
+        echo "🧹 Cleaning up Docker resources..."
+        docker system prune -f
+        echo "✅ Docker cleanup completed"
+
+  logs:
+    desc: "Show Docker logs for N8N services"
+    cmds:
+      - |
+        if [ -f "{{.N8N_DIR}}/docker-compose.yml" ]; then
+          cd {{.N8N_DIR}} && docker-compose logs -f
+        else
+          echo "❌ N8N docker-compose.yml not found"
+          exit 1
+        fi

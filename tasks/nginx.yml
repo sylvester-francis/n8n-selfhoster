@@ -1,0 +1,260 @@
+# Nginx installation and configuration tasks
+version: '3'
+
+tasks:
+  install:
+    desc: "Install and configure Nginx"
+    cmds:
+      - |
+        echo "🌐 Installing Nginx..."
+        
+        # Update package list
+        sudo apt-get update -qq
+        
+        # Install Nginx
+        sudo apt-get install -y nginx
+        
+        # Start and enable Nginx
+        sudo systemctl start nginx
+        sudo systemctl enable nginx
+        
+        echo "✅ Nginx installed successfully"
+
+  configure:
+    desc: "Configure Nginx for N8N"
+    deps: [install]
+    cmds:
+      - |
+        echo "⚙️ Configuring Nginx for N8N..."
+        
+        # Load environment variables
+        source .env 2>/dev/null || true
+        
+        # Set default values if not provided
+        DOMAIN_NAME=${DOMAIN_NAME:-${SERVER_IP:-localhost}}
+        
+        # Create Nginx configuration for N8N
+        sudo tee /etc/nginx/sites-available/n8n > /dev/null << EOF
+        server {
+            listen 80;
+            server_name ${DOMAIN_NAME};
+            
+            # Security headers
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header X-XSS-Protection "1; mode=block" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy "no-referrer-when-downgrade" always;
+            add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+            
+            # Increase client body size for file uploads
+            client_max_body_size 100M;
+            
+            location / {
+                proxy_pass http://localhost:5678;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade \$http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                proxy_cache_bypass \$http_upgrade;
+                
+                # WebSocket support
+                proxy_set_header Sec-WebSocket-Extensions \$http_sec_websocket_extensions;
+                proxy_set_header Sec-WebSocket-Key \$http_sec_websocket_key;
+                proxy_set_header Sec-WebSocket-Version \$http_sec_websocket_version;
+                
+                # Timeout settings
+                proxy_connect_timeout 60s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+            
+            # Health check endpoint
+            location /health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+        }
+        EOF
+        
+        # Enable the site
+        sudo ln -sf /etc/nginx/sites-available/n8n /etc/nginx/sites-enabled/
+        
+        # Remove default Nginx site
+        sudo rm -f /etc/nginx/sites-enabled/default
+        
+        # Test configuration
+        sudo nginx -t
+        
+        # Reload Nginx
+        sudo systemctl reload nginx
+        
+        echo "✅ Nginx configured for N8N"
+
+  ssl:
+    desc: "Configure SSL certificates"
+    deps: [configure]
+    cmds:
+      - |
+        echo "🔒 Configuring SSL certificates..."
+        
+        source .env 2>/dev/null || true
+        DOMAIN_NAME=${DOMAIN_NAME:-${SERVER_IP:-localhost}}
+        
+        if [[ "${SKIP_SSL:-false}" == "true" ]]; then
+          echo "⏭️ SSL configuration skipped"
+          exit 0
+        fi
+        
+        # Create SSL directory
+        sudo mkdir -p /etc/ssl/private
+        sudo mkdir -p /etc/ssl/certs
+        
+        # Generate self-signed certificate if domain is not provided
+        if [[ "$DOMAIN_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$DOMAIN_NAME" == "localhost" ]]; then
+          echo "📜 Generating self-signed SSL certificate..."
+          
+          sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /etc/ssl/private/n8n-selfsigned.key \
+            -out /etc/ssl/certs/n8n-selfsigned.crt \
+            -subj "/C=US/ST=State/L=City/O=Organization/OU=OrgUnit/CN=$DOMAIN_NAME"
+          
+          SSL_CERT="/etc/ssl/certs/n8n-selfsigned.crt"
+          SSL_KEY="/etc/ssl/private/n8n-selfsigned.key"
+        else
+          # Install Certbot for Let's Encrypt
+          echo "📜 Installing Certbot for Let's Encrypt..."
+          sudo apt-get install -y certbot python3-certbot-nginx
+          
+          # Get Let's Encrypt certificate
+          echo "🔐 Obtaining Let's Encrypt certificate..."
+          sudo certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --email admin@$DOMAIN_NAME
+          
+          SSL_CERT="/etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem"
+          SSL_KEY="/etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem"
+        fi
+        
+        # Update Nginx configuration for HTTPS
+        sudo tee /etc/nginx/sites-available/n8n > /dev/null << EOF
+        server {
+            listen 80;
+            server_name ${DOMAIN_NAME};
+            return 301 https://\$server_name\$request_uri;
+        }
+        
+        server {
+            listen 443 ssl http2;
+            server_name ${DOMAIN_NAME};
+            
+            ssl_certificate ${SSL_CERT};
+            ssl_certificate_key ${SSL_KEY};
+            
+            # SSL configuration
+            ssl_protocols TLSv1.2 TLSv1.3;
+            ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
+            ssl_prefer_server_ciphers off;
+            ssl_session_cache shared:SSL:10m;
+            ssl_session_timeout 10m;
+            
+            # Security headers
+            add_header Strict-Transport-Security "max-age=31536000" always;
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header X-XSS-Protection "1; mode=block" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            
+            # Increase client body size for file uploads
+            client_max_body_size 100M;
+            
+            location / {
+                proxy_pass http://localhost:5678;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade \$http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto https;
+                proxy_cache_bypass \$http_upgrade;
+                
+                # WebSocket support
+                proxy_set_header Sec-WebSocket-Extensions \$http_sec_websocket_extensions;
+                proxy_set_header Sec-WebSocket-Key \$http_sec_websocket_key;
+                proxy_set_header Sec-WebSocket-Version \$http_sec_websocket_version;
+                
+                # Timeout settings
+                proxy_connect_timeout 60s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+            
+            # Health check endpoint
+            location /health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+        }
+        EOF
+        
+        # Test and reload Nginx
+        sudo nginx -t
+        sudo systemctl reload nginx
+        
+        echo "✅ SSL certificates configured"
+
+  start:
+    desc: "Start Nginx service"
+    cmds:
+      - |
+        echo "🚀 Starting Nginx..."
+        sudo systemctl start nginx
+        sudo systemctl enable nginx
+        echo "✅ Nginx started"
+
+  stop:
+    desc: "Stop Nginx service"
+    cmds:
+      - |
+        echo "⏹️ Stopping Nginx..."
+        sudo systemctl stop nginx
+        echo "✅ Nginx stopped"
+
+  restart:
+    desc: "Restart Nginx service"
+    cmds:
+      - |
+        echo "🔄 Restarting Nginx..."
+        sudo systemctl restart nginx
+        echo "✅ Nginx restarted"
+
+  reload:
+    desc: "Reload Nginx configuration"
+    cmds:
+      - |
+        echo "🔄 Reloading Nginx configuration..."
+        sudo nginx -t && sudo systemctl reload nginx
+        echo "✅ Nginx configuration reloaded"
+
+  status:
+    desc: "Check Nginx status"
+    cmds:
+      - |
+        echo "🔍 Nginx Status:"
+        echo "  Service: $(systemctl is-active nginx)"
+        echo "  Version: $(nginx -v 2>&1)"
+        echo ""
+        echo "📊 Configuration test:"
+        sudo nginx -t
+
+  logs:
+    desc: "Show Nginx logs"
+    cmds:
+      - |
+        echo "📋 Nginx Access Logs:"
+        sudo tail -n 20 /var/log/nginx/access.log
+        echo ""
+        echo "📋 Nginx Error Logs:"
+        sudo tail -n 20 /var/log/nginx/error.log

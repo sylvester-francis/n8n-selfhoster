@@ -1,0 +1,256 @@
+# N8N Self-Hosted Installer Taskfile
+# https://taskfile.dev
+
+version: '3'
+
+silent: true
+
+vars:
+  SCRIPT_VERSION: "1.3.0"
+  N8N_DIR: "/opt/n8n"
+  BACKUP_DIR: "/opt/n8n/backups"
+  LOG_FILE: "/tmp/n8n-installer.log"
+  
+  # Installation type (auto, standard, proxmox)
+  INSTALL_TYPE: '{{.INSTALL_TYPE | default "auto"}}'
+  
+  # Configuration variables
+  DOMAIN_NAME: '{{.DOMAIN_NAME | default ""}}'
+  SERVER_IP: '{{.SERVER_IP | default ""}}'
+  TIMEZONE: '{{.TIMEZONE | default ""}}'
+  
+  # Feature flags
+  SKIP_FIREWALL: '{{.SKIP_FIREWALL | default "false"}}'
+  SKIP_SSL: '{{.SKIP_SSL | default "false"}}'
+  SKIP_BACKUPS: '{{.SKIP_BACKUPS | default "false"}}'
+  QUICK_MODE: '{{.QUICK_MODE | default "false"}}'
+
+includes:
+  system: ./tasks/system.yml
+  docker: ./tasks/docker.yml
+  nginx: ./tasks/nginx.yml
+  n8n: ./tasks/n8n.yml
+  security: ./tasks/security.yml
+  proxmox: ./tasks/proxmox.yml
+  backup: ./tasks/backup.yml
+  test: ./tasks/test.yml
+
+tasks:
+  # Main installation task
+  install:
+    desc: "Complete N8N installation with environment detection"
+    deps:
+      - detect-environment
+      - system:check-requirements
+      - get-configuration
+    cmds:
+      - task: system:update
+      - task: docker:install
+      - task: n8n:setup
+      - task: nginx:install
+      - task: nginx:configure
+      - task: security:configure
+      - task: backup:setup
+      - task: start-services
+      - task: validate-installation
+    
+  # Environment detection and configuration
+  detect-environment:
+    desc: "Detect installation environment (Proxmox, VM, bare metal)"
+    cmds:
+      - |
+        echo "🔍 Detecting installation environment..."
+        
+        # Check for virtualization
+        if command -v systemd-detect-virt >/dev/null 2>&1; then
+          VIRT_TYPE=$(systemd-detect-virt 2>/dev/null || echo "none")
+          echo "Virtualization type: $VIRT_TYPE"
+          
+          if [[ "$VIRT_TYPE" != "none" ]]; then
+            # Check for Proxmox indicators
+            if task proxmox:detect; then
+              echo "✅ Proxmox VM detected"
+              echo "DETECTED_ENV=proxmox" >> .env
+            else
+              echo "✅ Virtual machine detected"
+              echo "DETECTED_ENV=vm" >> .env
+            fi
+          else
+            echo "✅ Bare metal detected"
+            echo "DETECTED_ENV=baremetal" >> .env
+          fi
+        fi
+    generates:
+      - .env
+
+  get-configuration:
+    desc: "Gather installation configuration"
+    deps: [detect-environment]
+    cmds:
+      - |
+        echo "📋 Gathering configuration..."
+        
+        # Load detected environment
+        source .env 2>/dev/null || true
+        
+        # Handle installation type selection
+        if [[ "{{.INSTALL_TYPE}}" == "auto" ]]; then
+          if [[ "$DETECTED_ENV" == "proxmox" ]]; then
+            echo "🖥️ Proxmox VM detected. Recommend Proxmox-optimized installation."
+            echo "INSTALL_TYPE=proxmox" >> .env
+          else
+            echo "INSTALL_TYPE=standard" >> .env
+          fi
+        else
+          echo "INSTALL_TYPE={{.INSTALL_TYPE}}" >> .env
+        fi
+        
+        # Auto-detect IP if not provided
+        if [[ -z "{{.SERVER_IP}}" ]]; then
+          DETECTED_IP=$(curl -s ifconfig.me || curl -s ipinfo.io/ip || echo "")
+          if [[ -n "$DETECTED_IP" ]]; then
+            echo "SERVER_IP=$DETECTED_IP" >> .env
+            echo "Auto-detected IP: $DETECTED_IP"
+          fi
+        else
+          echo "SERVER_IP={{.SERVER_IP}}" >> .env
+        fi
+
+  start-services:
+    desc: "Start all N8N services"
+    deps: [docker:start, nginx:start]
+    cmds:
+      - echo "🚀 All services started successfully"
+
+  validate-installation:
+    desc: "Validate N8N installation"
+    cmds:
+      - task: test:health-check
+      - task: test:connectivity
+      - echo "✅ Installation validation completed"
+
+  # Quick installation for testing
+  quick:
+    desc: "Quick installation without backups and optional features"
+    vars:
+      QUICK_MODE: "true"
+      SKIP_BACKUPS: "true"
+    cmds:
+      - task: install
+
+  # Proxmox-specific installation
+  proxmox:
+    desc: "Proxmox-optimized installation"
+    vars:
+      INSTALL_TYPE: "proxmox"
+    cmds:
+      - task: install
+
+  # Standard installation
+  standard:
+    desc: "Standard installation for bare metal/high-performance VPS"
+    vars:
+      INSTALL_TYPE: "standard"
+    cmds:
+      - task: install
+
+  # Dry run - show what would be done
+  dry-run:
+    desc: "Show what would be installed without making changes"
+    cmds:
+      - task: detect-environment
+      - task: get-configuration
+      - |
+        source .env
+        echo "🔍 Installation Plan:"
+        echo "  Environment: $DETECTED_ENV"
+        echo "  Install Type: $INSTALL_TYPE"
+        echo "  Domain/IP: ${SERVER_IP:-${DOMAIN_NAME:-auto-detect}}"
+        echo "  Features: Docker, N8N, PostgreSQL, Nginx, HTTPS"
+        if [[ "$INSTALL_TYPE" == "proxmox" ]]; then
+          echo "  Proxmox Optimizations: Extended timeouts, VM tuning"
+        fi
+
+  # Management tasks
+  status:
+    desc: "Show N8N installation status"
+    cmds:
+      - task: test:status
+
+  logs:
+    desc: "Show N8N logs"
+    cmds:
+      - cd {{.N8N_DIR}} && docker-compose logs -f n8n
+
+  backup:
+    desc: "Create manual backup"
+    cmds:
+      - task: backup:manual
+
+  update:
+    desc: "Update N8N to latest version"
+    cmds:
+      - task: n8n:update
+
+  uninstall:
+    desc: "Uninstall N8N (interactive confirmation)"
+    cmds:
+      - task: system:uninstall
+
+  # Development and testing
+  test:
+    desc: "Run all tests"
+    cmds:
+      - task: test:lint
+      - task: test:syntax
+      - task: test:functions
+
+  lint:
+    desc: "Run shellcheck on all scripts"
+    cmds:
+      - task: test:lint
+
+  # Help and information
+  help:
+    desc: "Show available tasks and usage"
+    cmds:
+      - |
+        echo "N8N Self-Hosted Installer v{{.SCRIPT_VERSION}}"
+        echo ""
+        echo "🚀 Installation Commands:"
+        echo "  task install          # Smart installation with auto-detection"
+        echo "  task proxmox          # Proxmox VM optimized installation"
+        echo "  task standard         # Standard installation"
+        echo "  task quick            # Quick installation for testing"
+        echo ""
+        echo "🔧 Management Commands:"
+        echo "  task status           # Show installation status"
+        echo "  task logs             # Show N8N logs"
+        echo "  task backup           # Create manual backup"
+        echo "  task update           # Update N8N"
+        echo ""
+        echo "🧪 Development Commands:"
+        echo "  task test             # Run all tests"
+        echo "  task dry-run          # Preview installation"
+        echo "  task lint             # Run code quality checks"
+        echo ""
+        echo "📖 Examples:"
+        echo "  task install DOMAIN_NAME=n8n.example.com"
+        echo "  task proxmox SERVER_IP=192.168.1.100"
+        echo "  task quick SKIP_SSL=true"
+
+  version:
+    desc: "Show installer version"
+    cmds:
+      - |
+        echo "N8N Self-Hosted Installer v{{.SCRIPT_VERSION}}"
+        echo "Author: Sylvester Francis"
+        echo "GitHub: https://github.com/sylvester-francis/n8n-selfhoster"
+
+  # Clean up temporary files
+  clean:
+    desc: "Clean up temporary files and caches"
+    cmds:
+      - rm -f .env
+      - rm -f {{.LOG_FILE}}
+      - echo "🧹 Cleanup completed"
